@@ -18,7 +18,7 @@ Você  ──fala──▶  PIPECAT (processo 1)                HERMES AGENT (pr
                   ├─ sessão de voz                  ──▶ └─ API server (OpenAI-compatível)
                   │      streaming SSE ◀────────────────┘
                   ├─ chunks → LLMTextFrame
-                  ├─ TTS (Kokoro local, incremental)
+                  ├─ TTS (Kokoro local / ElevenLabs nuvem, incremental)
                   └─ reprodução (speaker)
 ```
 
@@ -51,7 +51,8 @@ LLMUserAggregator        VAD (Silero) + turn detection; junta a fala do usuário
 HermesLLMService         POST /v1/chat/completions (streaming SSE via httpx)
     │                       emite LLMFullResponseStartFrame → LLMTextFrame* → LLMFullResponseEndFrame
     ▼
-KokoroTTSService         TTS local; agrega por sentença e sintetiza incrementalmente
+KokoroTTSService         TTS local (ou ElevenLabsTTSService na nuvem, via TTS_PROVIDER);
+    │                       agrega por sentença e sintetiza incrementalmente
     │
     ▼
 transport.output()       reprodução no speaker
@@ -96,7 +97,9 @@ A ordem vem do exemplo oficial do Pipecat (`06a-voice-agent-local.py`) e da spec
 ```
 polaris/
 ├── app.py                      # entrypoint: config → health check → runner
-├── pyproject.toml              # deps: pipecat-ai[kokoro,local,whisper]>=1.4,<2 + dev
+├── pyproject.toml              # deps: pipecat-ai[kokoro,local,whisper,elevenlabs]>=1.4,<2 + libs NVIDIA CUDA 12 + dev
+├── requirements.txt            # espelha o pyproject p/ instalação de primeira execução
+├── run.sh                      # sobe hermes gateway + agente (exporta LD_LIBRARY_PATH das libs CUDA)
 ├── README.md                   # visão do usuário (instalação, execução, troubleshooting)
 ├── .env.example                # template de configuração (spec §12)
 ├── .gitignore                  # .env, .venv, caches
@@ -138,7 +141,8 @@ Dataclass `@dataclass(frozen=True)` `Settings` + `load_settings()` (via `python-
 
 Validações embutidas:
 - `HERMES_API_KEY` vazio → `ValueError` (fail-fast).
-- `TTS_PROVIDER` ≠ `kokoro` → `ValueError`.
+- `TTS_PROVIDER` fora de `kokoro`/`elevenlabs` → `ValueError`.
+- `TTS_PROVIDER=elevenlabs` exige `ELEVENLABS_API_KEY` e `ELEVENLABS_VOICE_ID` (fail-fast — o serviço do pipecat só valida a chave no handshake do WebSocket).
 - `STT_LANGUAGE` vazio → `None` (auto-detecção do Whisper).
 - `HERMES_SESSION_ID` vazio → gera `voice-session-<uuid>`.
 
@@ -204,8 +208,8 @@ data: [DONE]
 - `build_transport(settings)` — `LocalAudioTransport` (import **lazy** por causa do pyaudio) com `audio_in_enabled`/`audio_out_enabled` e índices de dispositivo opcionais.
 - `build_services(settings, *, transport, stt, llm, tts, context, session_manager)` — todos os componentes **injetáveis** (testes passam fakes sem carregar modelos):
   - `WhisperSTTService(device=..., compute_type=..., settings=WhisperSTTService.Settings(model=..., language=..., no_speech_prob=0.4))` — usa `settings=` porque `model=`/`language=`/`no_speech_prob=` no construtor estão **deprecados** desde 1.7;
-  - `KokoroTTSService(settings=KokoroTTSService.Settings(voice=..., language=...), sample_rate=24000)` — `push_start_frame`/`push_stop_frames` já são defaults; agregação `SENTENCE` é default do `TTSService`;
-  - `_tts_language()`: `pt`/`pt-br` → `Language.PT_BR`; qualquer outra string vira `Language(value)`.
+  - `_build_tts_service(settings)` — único ponto de troca de TTS: `TTS_PROVIDER=kokoro` → `KokoroTTSService(settings=KokoroTTSService.Settings(voice=..., language=...), sample_rate=24000)`; `TTS_PROVIDER=elevenlabs` → `ElevenLabsTTSService(api_key=..., settings=ElevenLabsTTSService.Settings(voice=..., model=..., language=...), sample_rate=24000)` (WebSocket `multi-stream-input`, streaming incremental; import lazy). `push_start_frame`/`push_stop_frames` já são defaults; agregação `SENTENCE` é default do `TTSService`;
+  - `_tts_language()`: `pt`/`pt-br` → `Language.PT_BR`; qualquer outra string vira `Language(value)`. No ElevenLabs vira `language_code=pt` na URL do WS (modelos multilingual).
 - `build_pipeline(transport, stt, llm, tts, context, *, vad_analyzer=_UNSET)` — monta a ordem da §2.1; `vad_analyzer=None` nos testes evita carregar o modelo Silero (que é bundled no wheel, sem download).
 - `run_voice_agent(settings, ...)` — `PipelineWorker(pipeline, params=PipelineParams(enable_metrics=True, enable_usage_metrics=True), idle_timeout_secs=None, conversation_id=<app session>)` + `WorkerRunner` + `queue_frames([LLMRunFrame()])` + `await runner.run()`.
   - `idle_timeout_secs=None` é **essencial**: o default (300 s) mataria o Polaris após 5 min de silêncio.
@@ -276,9 +280,12 @@ Status ≠ 200 → log do corpo (truncado em 300 chars) + `ErrorFrame` upstream 
 | `STT_DEVICE` | `cpu` | `cpu`/`cuda`/`auto` |
 | `STT_COMPUTE_TYPE` | `int8` | Precisão do ctranslate2 |
 | `STT_LANGUAGE` | `pt` | Vazio = auto-detecção |
-| `TTS_PROVIDER` | `kokoro` | Único suportado hoje (validado) |
+| `TTS_PROVIDER` | `kokoro` | `kokoro` (local) ou `elevenlabs` (nuvem) |
 | `TTS_LANGUAGE` | `pt` | `pt`/`pt-br` → `Language.PT_BR` |
 | `TTS_VOICE` | `pf_dora` | Vozes pt-BR: `pf_dora`, `pm_alex`, `pm_santa` |
+| `ELEVENLABS_API_KEY` | *(vazio)* | Obrigatória com `TTS_PROVIDER=elevenlabs` |
+| `ELEVENLABS_VOICE_ID` | *(vazio)* | Obrigatória com `TTS_PROVIDER=elevenlabs` (premade ou clonada) |
+| `ELEVENLABS_MODEL_ID` | `eleven_flash_v2_5` | Realtime/multilingual; sobrescreva se quiser outro modelo |
 | `LOG_LEVEL` | `INFO` | `DEBUG` mostra detalhes do Pipecat |
 | `AUDIO_IN_DEVICE` / `AUDIO_OUT_DEVICE` | *(vazio)* | Índices PyAudio; vazio = padrão do sistema |
 
@@ -342,7 +349,9 @@ async def test_minha_mudanca():
 ## 8. Guia de alterações em pontos-chave
 
 ### Voz do TTS
-`.env` → `TTS_VOICE=pm_alex` (ou `pf_dora`/`pm_santa`). Outras vozes do Kokoro funcionam trocando também `TTS_LANGUAGE`.
+Kokoro: `.env` → `TTS_VOICE=pm_alex` (ou `pf_dora`/`pm_santa`). Outras vozes do Kokoro funcionam trocando também `TTS_LANGUAGE`.
+
+ElevenLabs: `.env` → `TTS_PROVIDER=elevenlabs` + `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` (voz premade ou clonada; o id é um hash tipo `21m00Tcm4TlvDq8ikWAM`).
 
 ### Idioma
 - STT: `STT_LANGUAGE=pt` fixo, ou vazio para auto-detecção. O mapeamento Whisper é feito por `Language(settings.stt_language)` em `voice_pipeline.build_services`.
@@ -368,8 +377,10 @@ user_params=LLMUserAggregatorParams(
 ### Modelo/GPU do Whisper
 `STT_MODEL`, `STT_DEVICE`, `STT_COMPUTE_TYPE` no `.env`. Para CPU fraca: `STT_MODEL=base`. Em `voice_pipeline.build_services` o `no_speech_prob=0.4` (filtra alucinações de fala em silêncio).
 
+Com `STT_DEVICE=cuda`, o ctranslate2 precisa das libs CUDA runtime — instaladas via pip (`nvidia-cublas-cu12`/`nvidia-cudnn-cu12`/`nvidia-cuda-runtime-cu12`) e expostas pelo `./run.sh` via `LD_LIBRARY_PATH` (sem isso: `Library libcublas.so.12 is not found`).
+
 ### Agregação do TTS
-`TextAggregationMode.SENTENCE` é o default. Para mudar: `KokoroTTSService(..., text_aggregation_mode=TextAggregationMode.TOKEN)` (fala por token — mais responsivo, mais cortes) ou `NONE` (fala só no fim). Import: `pipecat.services.tts_service.TextAggregationMode`.
+`TextAggregationMode.SENTENCE` é o default. Para mudar: passe `text_aggregation_mode=TextAggregationMode.TOKEN` no construtor do serviço em `_build_tts_service()` (fala por token — mais responsivo, mais cortes) ou `NONE` (fala só no fim). Import: `pipecat.services.tts_service.TextAggregationMode`.
 
 ### Porta/URL do Hermes
 Hermes: `API_SERVER_PORT` em `~/.hermes/.env`. Polaris: `HERMES_BASE_URL` no `.env`. O health check do `app.py` usa `{base_url}/health`.
@@ -397,7 +408,7 @@ O transport é isolado em `build_transport()` e injetado em `run_voice_agent(set
 **Não há system prompt no Polaris** — de propósito: o Hermes é a autoridade agêntica (spec §24). Ajustes de personalidade devem ser feitos no profile/config do Hermes (`~/.hermes/`), não no Pipecat. Evite adicionar `context.add_message({"role": "developer", ...})` — a mensagem entraria em duplicidade com o prompt do agente e poluiria a sessão.
 
 ### Trocar STT/TTS por outro serviço
-`build_services()` é o único lugar: substitua `WhisperSTTService` por qualquer `SegmentedSTTService` do Pipecat e `KokoroTTSService` por outro `TTSService`. O restante do pipeline (agregadores, ponte, runner) permanece.
+`build_services()` é o único lugar: substitua `WhisperSTTService` por qualquer `SegmentedSTTService` do Pipecat e o conteúdo de `_build_tts_service()` por outro `TTSService` (ou adicione um branch novo no `TTS_PROVIDER`). O restante do pipeline (agregadores, ponte, runner) permanece.
 
 ### Atualizar o Pipecat
 Pin atual: `pipecat-ai>=1.4.0,<2.0` (instalado 1.7.0). O Pipecat muda rápido — antes de subir versão: rode `uv run pytest -q`, confira `uv run python -c "import app"` e revise deprecações no changelog (já pegamos `PipelineTask`, `WhisperSTTService(model=...)`, `KokoroTTSService(voice_id=...)`).
@@ -414,6 +425,7 @@ Pin atual: `pipecat-ai>=1.4.0,<2.0` (instalado 1.7.0). O Pipecat muda rápido �
 | VAD | `pipecat.audio.vad.silero` → `SileroVADAnalyzer(params=VADParams(...))` | Modelo ONNX **bundled** no wheel; VAD vai no `LLMUserAggregatorParams`, não no STT |
 | STT | `pipecat.services.whisper.stt` → `WhisperSTTService` | Usar `settings=WhisperSTTService.Settings(model=..., language=..., no_speech_prob=...)`; `device=`/`compute_type=` são args do construtor |
 | TTS | `pipecat.services.kokoro.tts` → `KokoroTTSService` | `settings=KokoroTTSService.Settings(voice=..., language=...)`; `sample_rate=24000`; agregação `SENTENCE` default do `TTSService`; modelos em `~/.cache/pipecat/kokoro-onnx/` |
+| TTS (alternativo) | `pipecat.services.elevenlabs.tts` → `ElevenLabsTTSService` | `api_key=` (kwarg obrigatório) + `settings=ElevenLabsTTSService.Settings(voice=<voice_id>, model=..., language=...)`; WebSocket `multi-stream-input` com `output_format=pcm_24000`; `auto_mode=true` com agregação `SENTENCE`; não usa `voice_id=`/`model=` diretos (deprecados); chave só é validada no handshake |
 | Context | `pipecat.processors.aggregators.llm_context` → `LLMContext` + `pipecat.processors.aggregators.llm_response_universal` → `LLMContextAggregatorPair` | `LLMStandardMessage` é alias de `ChatCompletionMessageParam` do OpenAI — mensagens já são compatíveis |
 | Runner | `pipecat.pipeline.worker` → `PipelineWorker` + `pipecat.workers.runner` → `WorkerRunner` | `PipelineTask` deprecado desde 1.3.0 |
 | Frames | `pipecat.frames.frames` → `LLMRunFrame`, `LLMContextFrame`, `LLMTextFrame`, `LLMFullResponseStart/EndFrame`, `InterruptionFrame`, `ErrorFrame`, `LLMServiceMetadataFrame` | `LLMServiceMetadataFrame` é emitido pelo serviço no start (presente nos testes) |

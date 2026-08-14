@@ -43,6 +43,37 @@ def _tts_language(settings: Settings) -> Language:
     return Language(value)
 
 
+def _build_tts_service(settings: Settings):
+    """Instantiate the TTS service selected by TTS_PROVIDER.
+
+    Kokoro runs locally; ElevenLabs streams audio over a WebSocket
+    (multi-stream-input) and needs internet + an API key. Imported lazily
+    so tests never pay for the module import.
+    """
+    if settings.tts_provider == "elevenlabs":
+        from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
+
+        return ElevenLabsTTSService(
+            api_key=settings.elevenlabs_api_key,
+            settings=ElevenLabsTTSService.Settings(
+                voice=settings.elevenlabs_voice_id,
+                model=settings.elevenlabs_model_id,
+                # eleven_flash_v2_5 is multilingual: EL appends
+                # language_code=pt to the WS URL. Ignored (with a warning)
+                # if a non-multilingual model is configured.
+                language=_tts_language(settings),
+            ),
+            sample_rate=VOICE_AGENT_SAMPLE_RATE,
+        )
+    return KokoroTTSService(
+        settings=KokoroTTSService.Settings(
+            voice=settings.tts_voice,
+            language=_tts_language(settings),
+        ),
+        sample_rate=VOICE_AGENT_SAMPLE_RATE,
+    )
+
+
 def build_transport(settings: Settings):
     """Local microphone/speaker transport (imported lazily: needs PyAudio)."""
     from pipecat.transports.local.audio import (
@@ -98,16 +129,10 @@ def build_services(
             session_manager=session_manager,
         )
     if tts is None:
-        tts = KokoroTTSService(
-            settings=KokoroTTSService.Settings(
-                voice=settings.tts_voice,
-                language=_tts_language(settings),
-            ),
-            # Sentence-level aggregation is built into TTSService (default
-            # TextAggregationMode.SENTENCE), so LLM chunks flow to speech as
-            # soon as a sentence is complete — no full-response wait (§3).
-            sample_rate=VOICE_AGENT_SAMPLE_RATE,
-        )
+        # Sentence-level aggregation is built into TTSService (default
+        # TextAggregationMode.SENTENCE), so LLM chunks flow to speech as
+        # soon as a sentence is complete — no full-response wait (§3).
+        tts = _build_tts_service(settings)
     if context is None:
         context = LLMContext()
     return transport, stt, llm, tts, context, session_manager

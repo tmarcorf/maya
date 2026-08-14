@@ -9,8 +9,11 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregator,
 )
 from pipecat.processors.frame_processor import FrameProcessor
+from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
 
-from pipeline.voice_pipeline import build_pipeline
+from pipeline.hermes import HermesSessionManager
+from pipeline.voice_pipeline import build_pipeline, build_services
+from tests.conftest import make_settings
 
 
 class _FakeTransport:
@@ -58,3 +61,29 @@ def test_build_pipeline_defaults_to_silero_vad():
 
     user_aggregator = pipeline.processors[3]
     assert user_aggregator._params.vad_analyzer is not None
+
+
+def test_build_services_picks_elevenlabs_tts():
+    """TTS_PROVIDER=elevenlabs selects the ElevenLabs service.
+
+    Safe in tests: the ElevenLabs service constructor does not connect to
+    the network nor validate the API key — both happen on start().
+    """
+    settings = make_settings(
+        tts_provider="elevenlabs",
+        elevenlabs_api_key="el-test-key",
+        elevenlabs_voice_id="el-voice",
+    )
+    _, _, _, tts, _, _ = build_services(
+        settings,
+        transport=_FakeTransport(),
+        stt=FrameProcessor(),
+        llm=FrameProcessor(),
+        context=LLMContext(),
+        session_manager=HermesSessionManager("voice-session-test"),
+    )
+    assert isinstance(tts, ElevenLabsTTSService)
+    assert tts._settings.voice == "el-voice"
+    assert tts._settings.model == "eleven_flash_v2_5"
+    # Language.PT_BR is converted to the service string "pt" at init.
+    assert tts._settings.language == "pt"

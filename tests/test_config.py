@@ -71,8 +71,47 @@ def test_empty_stt_language_means_auto_detect(monkeypatch):
     assert settings.stt_language is None
 
 
-def test_unsupported_tts_provider_raises(monkeypatch):
+def test_unknown_tts_provider_raises(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+    monkeypatch.setenv("TTS_PROVIDER", "whisper-turbo")
+    with pytest.raises(ValueError, match="not supported"):
+        load_settings()
+
+
+def test_elevenlabs_requires_api_key(monkeypatch):
     monkeypatch.setenv("HERMES_API_KEY", "secret-123")
     monkeypatch.setenv("TTS_PROVIDER", "elevenlabs")
-    with pytest.raises(ValueError, match="elevenlabs"):
+    with pytest.raises(ValueError, match="ELEVENLABS_API_KEY"):
         load_settings()
+
+
+def test_elevenlabs_requires_voice_id(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+    monkeypatch.setenv("TTS_PROVIDER", "elevenlabs")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "el-key")
+    with pytest.raises(ValueError, match="ELEVENLABS_VOICE_ID"):
+        load_settings()
+
+
+def test_elevenlabs_settings_loaded(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+    monkeypatch.setenv("TTS_PROVIDER", "elevenlabs")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "el-key")
+    monkeypatch.setenv("ELEVENLABS_VOICE_ID", "el-voice")
+
+    settings = load_settings()
+
+    assert settings.tts_provider == "elevenlabs"
+    assert settings.elevenlabs_api_key == "el-key"
+    assert settings.elevenlabs_voice_id == "el-voice"
+    assert settings.elevenlabs_model_id == "eleven_flash_v2_5"  # default
+
+
+def test_elevenlabs_model_override(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+    monkeypatch.setenv("TTS_PROVIDER", "elevenlabs")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "el-key")
+    monkeypatch.setenv("ELEVENLABS_VOICE_ID", "el-voice")
+    monkeypatch.setenv("ELEVENLABS_MODEL_ID", "eleven_turbo_v2_5")
+
+    assert load_settings().elevenlabs_model_id == "eleven_turbo_v2_5"

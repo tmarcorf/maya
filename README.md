@@ -12,7 +12,7 @@ Você  ──fala──▶  PIPECAT                      HERMES AGENT (processo 
                   ├─ sessão de voz          ──▶ └─ http://127.0.0.1:8642/v1
                   │      streaming SSE ◀────────┘  (POST /v1/chat/completions)
                   ├─ chunks → LLMTextFrame
-                  ├─ TTS (Kokoro, local)
+                  ├─ TTS (Kokoro local / ElevenLabs nuvem)
                   └─ reprodução (speaker)
 ```
 
@@ -25,7 +25,7 @@ O Pipecat não duplica nada do Hermes — Polaris é essencialmente a ponte entr
 
 ### Streaming de ponta a ponta
 
-O texto do Hermes chega por SSE e cada chunk vira um `LLMTextFrame`, que o Pipecat encaminha ao Kokoro com **agregação por sentença** (nativa do `TTSService`). O TTS começa assim que a primeira sentença está completa — não há espera pela resposta inteira.
+O texto do Hermes chega por SSE e cada chunk vira um `LLMTextFrame`, que o Pipecat encaminha ao TTS (Kokoro ou ElevenLabs, via `TTS_PROVIDER`) com **agregação por sentença** (nativa do `TTSService`). O TTS começa assim que a primeira sentença está completa — não há espera pela resposta inteira.
 
 ### Sessão
 
@@ -54,11 +54,12 @@ Se você começar a falar enquanto o Polaris responde, o VAD do Pipecat dispara 
 
 ```bash
 cd polaris
-uv sync                                  # cria o venv e instala as dependências
-cp .env.example .env                     # depois edite HERMES_API_KEY
+uv pip install -r requirements.txt      # cria/abastece o venv com todas as deps
+                                        # (equivalente ao uv sync; inclui as libs CUDA)
+cp .env.example .env                    # depois edite HERMES_API_KEY
 ```
 
-Dependências: `pipecat-ai[whisper,kokoro,local]`, `python-dotenv`, `loguru`, `httpx` (dev: `pytest`, `pytest-asyncio`, `respx`).
+Dependências: `pipecat-ai[whisper,kokoro,local,elevenlabs]`, `python-dotenv`, `loguru`, `httpx`, libs NVIDIA CUDA 12 (`nvidia-cublas-cu12`, `nvidia-cudnn-cu12`, `nvidia-cuda-runtime-cu12`) (dev: `pytest`, `pytest-asyncio`, `respx`).
 
 Na primeira execução os modelos são baixados automaticamente:
 - Whisper (faster-whisper) para o cache do ctranslate2;
@@ -73,7 +74,7 @@ API_SERVER_ENABLED=true
 API_SERVER_KEY=uma-chave-local-qualquer
 ```
 
-Inicie o gateway (o API server sobe junto):
+O gateway pode ser iniciado manualmente (o API server sobe junto) ou automaticamente pelo `./run.sh`:
 
 ```bash
 hermes gateway
@@ -91,10 +92,20 @@ Use a mesma `API_SERVER_KEY` no `HERMES_API_KEY` do `.env` deste projeto. Não e
 ## Execução
 
 ```bash
-uv run python app.py
+./run.sh
 ```
 
+O `run.sh` faz tudo: sobe o `hermes gateway` (se ainda não estiver no ar — reutiliza um já rodando), espera o health check responder, ajusta o `LD_LIBRARY_PATH` para as libs CUDA instaladas via pip (o ctranslate2 do Whisper precisa delas quando `STT_DEVICE=cuda`) e então roda o agente. Ctrl+C encerra tudo — inclusive o gateway que ele subiu. Com `STT_DEVICE=cpu` você pode rodar `uv run python app.py` diretamente (com o Hermes já no ar).
+
 Fale no microfone. O Polaris detecta o fim do turno, transcreve, envia ao Hermes e começa a responder enquanto a resposta ainda está sendo gerada. Ctrl+C para encerrar.
+
+Para usar uma voz da ElevenLabs em vez do Kokoro, configure no `.env`:
+
+```env
+TTS_PROVIDER=elevenlabs
+ELEVENLABS_API_KEY=...   # chave da API
+ELEVENLABS_VOICE_ID=...  # id da voz (premade ou clonada)
+```
 
 Exemplo de conversa:
 
@@ -119,8 +130,9 @@ A suíte cobre: configuração, criação do pipeline, parsing SSE, conversão d
 | Sem captura de áudio | Liste dispositivos e use `AUDIO_IN_DEVICE`/`AUDIO_OUT_DEVICE` (índices PyAudio) |
 | Erro ao instalar (`portaudio.h`) | `sudo apt-get install -y portaudio19-dev` e rode `uv sync` de novo |
 | Download do modelo Whisper lento | O primeiro turno baixa o modelo; use `STT_MODEL=base` para máquinas modestas |
-| Sem CUDA | `STT_DEVICE=cpu` já é o default; `auto` pode tentar GPU |
+| `Library libcublas.so.12 is not found` | Rode via `./run.sh` (expõe as libs CUDA do pip via `LD_LIBRARY_PATH`) ou use `STT_DEVICE=cpu` |
 | Sem áudio do Kokoro | Confira `~/.cache/pipecat/kokoro-onnx/` (modelo + vozes); teste `TTS_VOICE=pm_alex` |
+| Sem áudio do ElevenLabs | Confira rede, `ELEVENLABS_API_KEY`/`ELEVENLABS_VOICE_ID` e o modelo (`ELEVENLABS_MODEL_ID`) |
 | Latência alta | `STT_MODEL=base` (ou `tiny`), `STT_COMPUTE_TYPE=int8`, e menos tempo de silêncio no VAD |
 | Respostas truncadas/interrompidas | Confira microfone (o VAD pode estar interpretando ruído como barge-in) |
 

@@ -5,8 +5,14 @@ requires-python = ">=3.11"
 dependencies = [
     "httpx>=0.28.1",
     "loguru>=0.7.3",
-    "pipecat-ai[kokoro,local,whisper]>=1.4.0,<2.0",
+    "pipecat-ai[kokoro,local,whisper,elevenlabs]>=1.4.0,<2.0",
     "python-dotenv>=1.2.2",
+    # CUDA runtime libs: ctranslate2/faster-whisper needs them for
+    # STT_DEVICE=cuda but does not bundle them — run.sh exposes the wheel
+    # lib dirs via LD_LIBRARY_PATH.
+    "nvidia-cublas-cu12>=12.4,<13",
+    "nvidia-cudnn-cu12>=9.1,<10",
+    "nvidia-cuda-runtime-cu12>=12.4,<13",
 ]
 
 [dependency-groups]

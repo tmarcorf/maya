@@ -22,6 +22,8 @@ DEFAULT_STT_LANGUAGE = "pt"
 DEFAULT_TTS_PROVIDER = "kokoro"
 DEFAULT_TTS_LANGUAGE = "pt"
 DEFAULT_TTS_VOICE = "pf_dora"
+DEFAULT_ELEVENLABS_MODEL = "eleven_flash_v2_5"
+SUPPORTED_TTS_PROVIDERS = ("kokoro", "elevenlabs")
 DEFAULT_LOG_LEVEL = "INFO"
 
 
@@ -46,6 +48,10 @@ class Settings:
     # PyAudio device indices (None = system default).
     audio_in_device: int | None = None
     audio_out_device: int | None = None
+    # ElevenLabs (used only when tts_provider == "elevenlabs").
+    elevenlabs_api_key: str = ""
+    elevenlabs_voice_id: str = ""
+    elevenlabs_model_id: str = DEFAULT_ELEVENLABS_MODEL
 
 
 def _int_or_none(raw: str | None) -> int | None:
@@ -72,10 +78,28 @@ def load_settings() -> Settings:
     stt_language = os.getenv("STT_LANGUAGE", DEFAULT_STT_LANGUAGE).strip() or None
 
     tts_provider = os.getenv("TTS_PROVIDER", DEFAULT_TTS_PROVIDER).strip().lower()
-    if tts_provider != DEFAULT_TTS_PROVIDER:
+    if tts_provider not in SUPPORTED_TTS_PROVIDERS:
         raise ValueError(
-            f"TTS_PROVIDER '{tts_provider}' is not supported yet (only '{DEFAULT_TTS_PROVIDER}')."
+            f"TTS_PROVIDER '{tts_provider}' is not supported "
+            f"(supported: {', '.join(SUPPORTED_TTS_PROVIDERS)})."
         )
+
+    elevenlabs_api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
+    elevenlabs_voice_id = os.getenv("ELEVENLABS_VOICE_ID", "").strip()
+    if tts_provider == "elevenlabs":
+        # The pipecat ElevenLabs service does not validate the key at
+        # construction (only on the WS handshake), so fail fast here.
+        if not elevenlabs_api_key:
+            raise ValueError(
+                "ELEVENLABS_API_KEY is not set. It is required when "
+                "TTS_PROVIDER=elevenlabs (get a key at https://elevenlabs.io)."
+            )
+        if not elevenlabs_voice_id:
+            raise ValueError(
+                "ELEVENLABS_VOICE_ID is not set. It is required when "
+                "TTS_PROVIDER=elevenlabs (premade voice id, e.g. "
+                "21m00Tcm4TlvDq8ikWAM, or your cloned voice id)."
+            )
 
     # Stable app session id, per spec §8: "voice-session-<uuid>".
     app_session_id = os.getenv("HERMES_SESSION_ID", "").strip()
@@ -94,6 +118,9 @@ def load_settings() -> Settings:
         tts_provider=tts_provider,
         tts_language=os.getenv("TTS_LANGUAGE", DEFAULT_TTS_LANGUAGE),
         tts_voice=os.getenv("TTS_VOICE", DEFAULT_TTS_VOICE),
+        elevenlabs_api_key=elevenlabs_api_key,
+        elevenlabs_voice_id=elevenlabs_voice_id,
+        elevenlabs_model_id=os.getenv("ELEVENLABS_MODEL_ID", DEFAULT_ELEVENLABS_MODEL),
         log_level=os.getenv("LOG_LEVEL", DEFAULT_LOG_LEVEL),
         audio_in_device=_int_or_none(os.getenv("AUDIO_IN_DEVICE")),
         audio_out_device=_int_or_none(os.getenv("AUDIO_OUT_DEVICE")),
