@@ -99,7 +99,7 @@ polaris/
 ├── app.py                      # entrypoint: config → health check → runner
 ├── pyproject.toml              # deps: pipecat-ai[kokoro,local,whisper,elevenlabs]>=1.4,<2 + libs NVIDIA CUDA 12 + dev
 ├── requirements.txt            # espelha o pyproject p/ instalação de primeira execução
-├── run.sh                      # sobe hermes gateway + agente (exporta LD_LIBRARY_PATH das libs CUDA)
+├── polaris.sh                  # sobe hermes gateway + agente (exporta LD_LIBRARY_PATH das libs CUDA)
 ├── README.md                   # visão do usuário (instalação, execução, troubleshooting)
 ├── .env.example                # template de configuração (spec §12)
 ├── .gitignore                  # .env, .venv, caches
@@ -377,7 +377,7 @@ user_params=LLMUserAggregatorParams(
 ### Modelo/GPU do Whisper
 `STT_MODEL`, `STT_DEVICE`, `STT_COMPUTE_TYPE` no `.env`. Para CPU fraca: `STT_MODEL=base`. Em `voice_pipeline.build_services` o `no_speech_prob=0.4` (filtra alucinações de fala em silêncio).
 
-Com `STT_DEVICE=cuda`, o ctranslate2 precisa das libs CUDA runtime — instaladas via pip (`nvidia-cublas-cu12`/`nvidia-cudnn-cu12`/`nvidia-cuda-runtime-cu12`) e expostas pelo `./run.sh` via `LD_LIBRARY_PATH` (sem isso: `Library libcublas.so.12 is not found`).
+Com `STT_DEVICE=cuda`, o ctranslate2 precisa das libs CUDA runtime — instaladas via pip (`nvidia-cublas-cu12`/`nvidia-cudnn-cu12`/`nvidia-cuda-runtime-cu12`) e expostas pelo `./polaris.sh` via `LD_LIBRARY_PATH` (sem isso: `Library libcublas.so.12 is not found`).
 
 ### Agregação do TTS
 `TextAggregationMode.SENTENCE` é o default. Para mudar: passe `text_aggregation_mode=TextAggregationMode.TOKEN` no construtor do serviço em `_build_tts_service()` (fala por token — mais responsivo, mais cortes) ou `NONE` (fala só no fim). Import: `pipecat.services.tts_service.TextAggregationMode`.

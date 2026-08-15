@@ -74,7 +74,7 @@ API_SERVER_ENABLED=true
 API_SERVER_KEY=uma-chave-local-qualquer
 ```
 
-O gateway pode ser iniciado manualmente (o API server sobe junto) ou automaticamente pelo `./run.sh`:
+O gateway pode ser iniciado manualmente (o API server sobe junto) ou automaticamente pelo `./polaris.sh`:
 
 ```bash
 hermes gateway
@@ -92,10 +92,10 @@ Use a mesma `API_SERVER_KEY` no `HERMES_API_KEY` do `.env` deste projeto. Não e
 ## Execução
 
 ```bash
-./run.sh
+./polaris.sh
 ```
 
-O `run.sh` faz tudo: sobe o `hermes gateway` (se ainda não estiver no ar — reutiliza um já rodando), espera o health check responder, ajusta o `LD_LIBRARY_PATH` para as libs CUDA instaladas via pip (o ctranslate2 do Whisper precisa delas quando `STT_DEVICE=cuda`) e então roda o agente. Ctrl+C encerra tudo — inclusive o gateway que ele subiu. Com `STT_DEVICE=cpu` você pode rodar `uv run python app.py` diretamente (com o Hermes já no ar).
+O `polaris.sh` faz tudo: sobe o `hermes gateway` (se ainda não estiver no ar — reutiliza um já rodando), espera o health check responder, ajusta o `LD_LIBRARY_PATH` para as libs CUDA instaladas via pip (o ctranslate2 do Whisper precisa delas quando `STT_DEVICE=cuda`) e então roda o agente. Ctrl+C encerra tudo — inclusive o gateway que ele subiu. Com `STT_DEVICE=cpu` você pode rodar `uv run python app.py` diretamente (com o Hermes já no ar).
 
 Fale no microfone. O Polaris detecta o fim do turno, transcreve, envia ao Hermes e começa a responder enquanto a resposta ainda está sendo gerada. Ctrl+C para encerrar.
 
@@ -130,9 +130,9 @@ A suíte cobre: configuração, criação do pipeline, parsing SSE, conversão d
 | Sem captura de áudio | Liste dispositivos e use `AUDIO_IN_DEVICE`/`AUDIO_OUT_DEVICE` (índices PyAudio) |
 | Erro ao instalar (`portaudio.h`) | `sudo apt-get install -y portaudio19-dev` e rode `uv sync` de novo |
 | Download do modelo Whisper lento | O primeiro turno baixa o modelo; use `STT_MODEL=base` para máquinas modestas |
-| `Library libcublas.so.12 is not found` | Rode via `./run.sh` (expõe as libs CUDA do pip via `LD_LIBRARY_PATH`) ou use `STT_DEVICE=cpu` |
+| `Library libcublas.so.12 is not found` | Rode via `./polaris.sh` (expõe as libs CUDA do pip via `LD_LIBRARY_PATH`) ou use `STT_DEVICE=cpu` |
 | Sem áudio do Kokoro | Confira `~/.cache/pipecat/kokoro-onnx/` (modelo + vozes); teste `TTS_VOICE=pm_alex` |
-| Sem áudio do ElevenLabs | Confira rede, `ELEVENLABS_API_KEY`/`ELEVENLABS_VOICE_ID` e o modelo (`ELEVENLABS_MODEL_ID`) |
+| Sem áudio do ElevenLabs (log mostra erro de watchdog do TTS) | Vozes **library** (ex.: Fernanda) exigem plano pago: a API devolve `402 paid_plan_required` no free. No free só funcionam vozes **premade** via API — teste com `curl -X POST https://api.elevenlabs.io/v1/text-to-speech/{voice}?model_id=eleven_flash_v2_5 -H "xi-api-key: $ELEVENLABS_API_KEY" -H "Content-Type: application/json" -d '{"text":"oi"}'` |
 | Latência alta | `STT_MODEL=base` (ou `tiny`), `STT_COMPUTE_TYPE=int8`, e menos tempo de silêncio no VAD |
 | Respostas truncadas/interrompidas | Confira microfone (o VAD pode estar interpretando ruído como barge-in) |
 
