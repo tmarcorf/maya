@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from dotenv import load_dotenv
 
@@ -24,6 +24,10 @@ DEFAULT_TTS_LANGUAGE = "pt"
 DEFAULT_TTS_VOICE = "pf_dora"
 DEFAULT_ELEVENLABS_MODEL = "eleven_flash_v2_5"
 SUPPORTED_TTS_PROVIDERS = ("kokoro", "elevenlabs")
+DEFAULT_WAKE_WORD_ENABLED = False
+DEFAULT_WAKE_WORD_TIMEOUT = 10.0
+# Semicolon-separated (commas appear inside the phrases themselves).
+DEFAULT_WAKE_WORD_PHRASES = "E aí, Polaris;Ei, Polaris;Polaris, tá aí?"
 DEFAULT_LOG_LEVEL = "INFO"
 
 
@@ -52,6 +56,10 @@ class Settings:
     elevenlabs_api_key: str = ""
     elevenlabs_voice_id: str = ""
     elevenlabs_model_id: str = DEFAULT_ELEVENLABS_MODEL
+    # Wake word (transcript-based; uses the local STT).
+    wake_word_enabled: bool = False
+    wake_word_phrases: list[str] = field(default_factory=list)
+    wake_word_timeout: float = DEFAULT_WAKE_WORD_TIMEOUT
 
 
 def _int_or_none(raw: str | None) -> int | None:
@@ -101,6 +109,26 @@ def load_settings() -> Settings:
                 "21m00Tcm4TlvDq8ikWAM, or your cloned voice id)."
             )
 
+    wake_word_enabled = (
+        os.getenv("WAKE_WORD_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
+    )
+    wake_word_phrases = [
+        phrase.strip()
+        for phrase in os.getenv("WAKE_WORD_PHRASES", DEFAULT_WAKE_WORD_PHRASES).split(";")
+        if phrase.strip()
+    ]
+    if wake_word_enabled and not wake_word_phrases:
+        raise ValueError(
+            "WAKE_WORD_PHRASES is empty. It is required when WAKE_WORD_ENABLED=true "
+            "(semicolon-separated list, e.g. 'E aí, Polaris;Ei, Polaris')."
+        )
+    try:
+        wake_word_timeout = float(
+            os.getenv("WAKE_WORD_TIMEOUT", str(DEFAULT_WAKE_WORD_TIMEOUT))
+        )
+    except ValueError:
+        raise ValueError("WAKE_WORD_TIMEOUT must be a number (seconds).") from None
+
     # Stable app session id, per spec §8: "voice-session-<uuid>".
     app_session_id = os.getenv("HERMES_SESSION_ID", "").strip()
     if not app_session_id:
@@ -121,6 +149,9 @@ def load_settings() -> Settings:
         elevenlabs_api_key=elevenlabs_api_key,
         elevenlabs_voice_id=elevenlabs_voice_id,
         elevenlabs_model_id=os.getenv("ELEVENLABS_MODEL_ID", DEFAULT_ELEVENLABS_MODEL),
+        wake_word_enabled=wake_word_enabled,
+        wake_word_phrases=wake_word_phrases,
+        wake_word_timeout=wake_word_timeout,
         log_level=os.getenv("LOG_LEVEL", DEFAULT_LOG_LEVEL),
         audio_in_device=_int_or_none(os.getenv("AUDIO_IN_DEVICE")),
         audio_out_device=_int_or_none(os.getenv("AUDIO_OUT_DEVICE")),

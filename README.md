@@ -107,6 +107,18 @@ ELEVENLABS_API_KEY=...   # chave da API
 ELEVENLABS_VOICE_ID=...  # id da voz (premade ou clonada)
 ```
 
+## Wake word
+
+O Polaris pode ficar "dormindo" até ouvir uma frase de ativação (detectada na transcrição do Whisper — nenhum modelo extra):
+
+```env
+WAKE_WORD_ENABLED=true
+WAKE_WORD_PHRASES=E aí, Polaris;Ei, Polaris;Polaris, tá aí?   # lista separada por ';'
+WAKE_WORD_TIMEOUT=10     # segundos de inatividade até voltar a dormir
+```
+
+Comportamento: enquanto dorme, nada vai ao Hermes (as falas são descartadas); ao ouvir uma das frases (case-insensitive; as grafias "Polaris"/"Polares" são aceitas automaticamente — o Whisper costuma transcrever "polares"), o Polaris acorda e a conversa flui normalmente; após `WAKE_WORD_TIMEOUT` segundos sem fala, volta a dormir.
+
 Exemplo de conversa:
 
 > Você: "Que arquivos existem no meu projeto?"
@@ -134,6 +146,7 @@ A suíte cobre: configuração, criação do pipeline, parsing SSE, conversão d
 | Sem áudio do Kokoro | Confira `~/.cache/pipecat/kokoro-onnx/` (modelo + vozes); teste `TTS_VOICE=pm_alex` |
 | Sem áudio do ElevenLabs (log mostra erro de watchdog do TTS) | Vozes **library** (ex.: Fernanda) exigem plano pago: a API devolve `402 paid_plan_required` no free. No free só funcionam vozes **premade** via API — teste com `curl -X POST https://api.elevenlabs.io/v1/text-to-speech/{voice}?model_id=eleven_flash_v2_5 -H "xi-api-key: $ELEVENLABS_API_KEY" -H "Content-Type: application/json" -d '{"text":"oi"}'` |
 | Latência alta | `STT_MODEL=base` (ou `tiny`), `STT_COMPUTE_TYPE=int8`, e menos tempo de silêncio no VAD |
+| Não acorda com a wake word | Confira `WAKE_WORD_ENABLED=true` e as frases em `WAKE_WORD_PHRASES` (separadas por `;`); se o Whisper transcrever diferente (ex.: sem acento), adicione essa variante à lista |
 | Respostas truncadas/interrompidas | Confira microfone (o VAD pode estar interpretando ruído como barge-in) |
 
 ## Roadmap

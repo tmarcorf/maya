@@ -13,6 +13,8 @@ which tells Hermes to cancel the agent turn it was running.
 
 from __future__ import annotations
 
+import re
+
 from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import LLMRunFrame
@@ -28,7 +30,7 @@ from pipecat.services.whisper.stt import WhisperSTTService
 from pipecat.transcriptions.language import Language
 from pipecat.workers.runner import WorkerRunner
 
-from config.settings import Settings
+from config.settings import DEFAULT_WAKE_WORD_TIMEOUT, Settings
 from pipeline.hermes import HermesLLMService, HermesSessionManager
 
 # Kokoro's native sample rate — avoids a resampling step in the TTS service.
@@ -41,6 +43,26 @@ def _tts_language(settings: Settings) -> Language:
     if value in ("pt", "pt-br"):
         return Language.PT_BR
     return Language(value)
+
+
+def _expand_wake_phrases(phrases: list[str]) -> list[str]:
+    """Add polaris↔polares variants to each wake phrase, keeping order/dedup.
+
+    Whisper frequently transcribes the assistant's name as "polares" instead
+    of "polaris" (observed live), so both spellings must match. Phrases are
+    lowercased because matching is case-insensitive anyway.
+    """
+    expanded: list[str] = []
+    for phrase in phrases:
+        for candidate in (
+            phrase,
+            re.sub(r"polaris", "polares", phrase, flags=re.IGNORECASE),
+            re.sub(r"polares", "polaris", phrase, flags=re.IGNORECASE),
+        ):
+            candidate = candidate.lower()
+            if candidate not in expanded:
+                expanded.append(candidate)
+    return expanded
 
 
 def _build_tts_service(settings: Settings):
@@ -141,18 +163,66 @@ def build_services(
 _UNSET = object()
 
 
-def build_pipeline(transport, stt, llm, tts, context, *, vad_analyzer=_UNSET):
+def build_pipeline(
+    transport,
+    stt,
+    llm,
+    tts,
+    context,
+    *,
+    vad_analyzer=_UNSET,
+    wake_word_enabled: bool = False,
+    wake_phrases: list[str] | None = None,
+    wake_timeout: float = DEFAULT_WAKE_WORD_TIMEOUT,
+):
     """Assemble the Pipeline with the spec §13 ordering.
 
     The VAD analyzer on the user aggregator provides turn detection and
     barge-in detection (§4, §9). Tests can pass ``vad_analyzer=None`` to
     skip loading the Silero model.
+
+    With ``wake_word_enabled``, a ``WakePhraseUserTurnStartStrategy`` is
+    placed first in the turn-start strategies: while asleep the LLM never
+    runs, and only a transcription matching one of ``wake_phrases`` starts
+    a user turn. After ``wake_timeout`` seconds of inactivity the agent
+    goes back to sleep.
     """
     if vad_analyzer is _UNSET:
         vad_analyzer = SileroVADAnalyzer()
+
+    user_params = LLMUserAggregatorParams(vad_analyzer=vad_analyzer)
+    if wake_word_enabled:
+        from pipecat.turns.user_start.wake_phrase_user_turn_start_strategy import (
+            WakePhraseUserTurnStartStrategy,
+        )
+        from pipecat.turns.user_turn_strategies import (
+            UserTurnStrategies,
+            default_user_turn_start_strategies,
+        )
+
+        strategy = WakePhraseUserTurnStartStrategy(
+            phrases=_expand_wake_phrases(wake_phrases or []),
+            timeout=wake_timeout,
+        )
+
+        @strategy.event_handler("on_wake_phrase_detected")
+        async def _on_wake_phrase_detected(_strategy, phrase):
+            logger.info(f"Wake phrase detectada: {phrase!r}")
+
+        @strategy.event_handler("on_wake_phrase_timeout")
+        async def _on_wake_phrase_timeout(_strategy):
+            logger.info("Wake phrase timeout — Polaris voltou a dormir.")
+
+        user_params = LLMUserAggregatorParams(
+            vad_analyzer=vad_analyzer,
+            user_turn_strategies=UserTurnStrategies(
+                start=[strategy, *default_user_turn_start_strategies()],
+            ),
+        )
+
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
-        user_params=LLMUserAggregatorParams(vad_analyzer=vad_analyzer),
+        user_params=user_params,
     )
     return Pipeline(
         [
@@ -189,7 +259,16 @@ async def run_voice_agent(
             session_manager=session_manager,
         )
 
-    pipeline = build_pipeline(transport, stt, llm, tts, context)
+    pipeline = build_pipeline(
+        transport,
+        stt,
+        llm,
+        tts,
+        context,
+        wake_word_enabled=settings.wake_word_enabled,
+        wake_phrases=settings.wake_word_phrases,
+        wake_timeout=settings.wake_word_timeout,
+    )
 
     worker = PipelineWorker(
         pipeline,
@@ -201,7 +280,11 @@ async def run_voice_agent(
 
     runner = WorkerRunner()
     await runner.add_workers(worker)
-    await worker.queue_frames([LLMRunFrame()])
+    if not settings.wake_word_enabled:
+        # Kickstart the first turn. With a wake word, the agent must stay
+        # silent until the wake phrase is heard — turns start naturally
+        # when the wake strategy triggers user turn start.
+        await worker.queue_frames([LLMRunFrame()])
 
     logger.info(
         f"Polaris is listening (app session {settings.hermes_app_session_id}, "

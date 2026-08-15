@@ -210,6 +210,7 @@ data: [DONE]
   - `WhisperSTTService(device=..., compute_type=..., settings=WhisperSTTService.Settings(model=..., language=..., no_speech_prob=0.4))` — usa `settings=` porque `model=`/`language=`/`no_speech_prob=` no construtor estão **deprecados** desde 1.7;
   - `_build_tts_service(settings)` — único ponto de troca de TTS: `TTS_PROVIDER=kokoro` → `KokoroTTSService(settings=KokoroTTSService.Settings(voice=..., language=...), sample_rate=24000)`; `TTS_PROVIDER=elevenlabs` → `ElevenLabsTTSService(api_key=..., settings=ElevenLabsTTSService.Settings(voice=..., model=..., language=...), sample_rate=24000)` (WebSocket `multi-stream-input`, streaming incremental; import lazy). `push_start_frame`/`push_stop_frames` já são defaults; agregação `SENTENCE` é default do `TTSService`;
   - `_tts_language()`: `pt`/`pt-br` → `Language.PT_BR`; qualquer outra string vira `Language(value)`. No ElevenLabs vira `language_code=pt` na URL do WS (modelos multilingual).
+- `build_pipeline(..., vad_analyzer, wake_word_enabled, wake_phrases, wake_timeout)` — com wake word habilitado, monta `LLMUserAggregatorParams(user_turn_strategies=UserTurnStrategies(start=[WakePhraseUserTurnStartStrategy(phrases=..., timeout=...), *default_user_turn_start_strategies()]))`: a strategy fica **primeira** e bloqueia turnos enquanto dorme (padrão documentado do pipecat; `stop` fica `None` → defaults preservados). `_expand_wake_phrases()` gera variantes `polaris↔polares` (o Whisper transcreve "polares") e minúsculas (matching é case-insensitive); handlers `on_wake_phrase_detected`/`on_wake_phrase_timeout` logam em INFO.
 - `build_pipeline(transport, stt, llm, tts, context, *, vad_analyzer=_UNSET)` — monta a ordem da §2.1; `vad_analyzer=None` nos testes evita carregar o modelo Silero (que é bundled no wheel, sem download).
 - `run_voice_agent(settings, ...)` — `PipelineWorker(pipeline, params=PipelineParams(enable_metrics=True, enable_usage_metrics=True), idle_timeout_secs=None, conversation_id=<app session>)` + `WorkerRunner` + `queue_frames([LLMRunFrame()])` + `await runner.run()`.
   - `idle_timeout_secs=None` é **essencial**: o default (300 s) mataria o Polaris após 5 min de silêncio.
@@ -286,6 +287,9 @@ Status ≠ 200 → log do corpo (truncado em 300 chars) + `ErrorFrame` upstream 
 | `ELEVENLABS_API_KEY` | *(vazio)* | Obrigatória com `TTS_PROVIDER=elevenlabs` |
 | `ELEVENLABS_VOICE_ID` | *(vazio)* | Obrigatória com `TTS_PROVIDER=elevenlabs` (premade ou clonada) |
 | `ELEVENLABS_MODEL_ID` | `eleven_flash_v2_5` | Realtime/multilingual; sobrescreva se quiser outro modelo |
+| `WAKE_WORD_ENABLED` | `false` | `true` exige wake phrase (transcrição) antes de cada conversa |
+| `WAKE_WORD_PHRASES` | `E aí, Polaris;Ei, Polaris;Polaris, tá aí?` | Lista separada por `;` (vírgulas ficam dentro das frases) |
+| `WAKE_WORD_TIMEOUT` | `10` | Segundos de inatividade até voltar a dormir |
 | `LOG_LEVEL` | `INFO` | `DEBUG` mostra detalhes do Pipecat |
 | `AUDIO_IN_DEVICE` / `AUDIO_OUT_DEVICE` | *(vazio)* | Índices PyAudio; vazio = padrão do sistema |
 
@@ -378,6 +382,9 @@ user_params=LLMUserAggregatorParams(
 `STT_MODEL`, `STT_DEVICE`, `STT_COMPUTE_TYPE` no `.env`. Para CPU fraca: `STT_MODEL=base`. Em `voice_pipeline.build_services` o `no_speech_prob=0.4` (filtra alucinações de fala em silêncio).
 
 Com `STT_DEVICE=cuda`, o ctranslate2 precisa das libs CUDA runtime — instaladas via pip (`nvidia-cublas-cu12`/`nvidia-cudnn-cu12`/`nvidia-cuda-runtime-cu12`) e expostas pelo `./polaris.sh` via `LD_LIBRARY_PATH` (sem isso: `Library libcublas.so.12 is not found`).
+
+### Wake word
+Ligada por `WAKE_WORD_ENABLED=true` no `.env` (por transcrição, sem modelo extra). Enquanto dorme, nenhuma fala chega ao Hermes (o `WakePhraseUserTurnStartStrategy` retorna `STOP` e reseta a agregação em transcrições sem match); a frase detectada inicia o turno normalmente — e o próprio texto dela vira o input (dizer só "E aí, Polaris" gera uma resposta de saudação). Após `WAKE_WORD_TIMEOUT` s de inatividade, volta a dormir (evento `on_wake_phrase_timeout`). Com wake ativo, `run_voice_agent` **não** enfileira o `LLMRunFrame` de kickstart (senão o Hermes falaria no boot). Frases: separadas por `;`, case-insensitive, e as grafias "Polaris"/"Polares" são equivalentes automaticamente (`_expand_wake_phrases`). Atenção: acentos importam ("aí" ≠ "ai") — se o Whisper transcrever sem acento, adicione a variante à lista.
 
 ### Agregação do TTS
 `TextAggregationMode.SENTENCE` é o default. Para mudar: passe `text_aggregation_mode=TextAggregationMode.TOKEN` no construtor do serviço em `_build_tts_service()` (fala por token — mais responsivo, mais cortes) ou `NONE` (fala só no fim). Import: `pipecat.services.tts_service.TextAggregationMode`.

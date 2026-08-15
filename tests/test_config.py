@@ -115,3 +115,37 @@ def test_elevenlabs_model_override(monkeypatch):
     monkeypatch.setenv("ELEVENLABS_MODEL_ID", "eleven_turbo_v2_5")
 
     assert load_settings().elevenlabs_model_id == "eleven_turbo_v2_5"
+
+
+def test_wake_word_defaults_when_unset(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+    monkeypatch.delenv("WAKE_WORD_ENABLED", raising=False)
+    monkeypatch.delenv("WAKE_WORD_PHRASES", raising=False)
+    monkeypatch.delenv("WAKE_WORD_TIMEOUT", raising=False)
+
+    settings = load_settings()
+
+    assert settings.wake_word_enabled is False
+    assert settings.wake_word_phrases == ["E aí, Polaris", "Ei, Polaris", "Polaris, tá aí?"]
+    assert settings.wake_word_timeout == 10.0
+
+
+def test_wake_word_enabled_and_phrases(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+    monkeypatch.setenv("WAKE_WORD_ENABLED", "yes")
+    monkeypatch.setenv("WAKE_WORD_PHRASES", " Ei, Polaris ;; Polaris, tá aí? ")
+    monkeypatch.setenv("WAKE_WORD_TIMEOUT", "30")
+
+    settings = load_settings()
+
+    assert settings.wake_word_enabled is True
+    assert settings.wake_word_phrases == ["Ei, Polaris", "Polaris, tá aí?"]
+    assert settings.wake_word_timeout == 30.0
+
+
+def test_wake_word_enabled_requires_phrases(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+    monkeypatch.setenv("WAKE_WORD_ENABLED", "true")
+    monkeypatch.setenv("WAKE_WORD_PHRASES", " ; ")
+    with pytest.raises(ValueError, match="WAKE_WORD_PHRASES"):
+        load_settings()

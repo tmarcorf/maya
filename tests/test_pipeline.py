@@ -10,9 +10,16 @@ from pipecat.processors.aggregators.llm_response_universal import (
 )
 from pipecat.processors.frame_processor import FrameProcessor
 from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
+from pipecat.turns.user_start.wake_phrase_user_turn_start_strategy import (
+    WakePhraseUserTurnStartStrategy,
+)
 
 from pipeline.hermes import HermesSessionManager
-from pipeline.voice_pipeline import build_pipeline, build_services
+from pipeline.voice_pipeline import (
+    _expand_wake_phrases,
+    build_pipeline,
+    build_services,
+)
 from tests.conftest import make_settings
 
 
@@ -61,6 +68,66 @@ def test_build_pipeline_defaults_to_silero_vad():
 
     user_aggregator = pipeline.processors[3]
     assert user_aggregator._params.vad_analyzer is not None
+
+
+def test_expand_wake_phrases_adds_polares_variants():
+    phrases = ["E aí, Polaris", "Ei, polares", "Olá"]
+    assert _expand_wake_phrases(phrases) == [
+        "e aí, polaris",
+        "e aí, polares",
+        "ei, polares",
+        "ei, polaris",
+        "olá",
+    ]
+
+
+def test_expand_wake_phrases_dedups():
+    # "Polares" already covers both spellings of the name (case-insensitive).
+    assert _expand_wake_phrases(["Polaris", "Polares"]) == ["polaris", "polares"]
+
+
+def test_build_pipeline_wake_word_enabled():
+    transport = _FakeTransport()
+    stt, llm, tts = FrameProcessor(), FrameProcessor(), FrameProcessor()
+    context = LLMContext()
+
+    pipeline = build_pipeline(
+        transport,
+        stt,
+        llm,
+        tts,
+        context,
+        vad_analyzer=None,
+        wake_word_enabled=True,
+        wake_phrases=["E aí, Polaris", "Ei, Polaris"],
+        wake_timeout=30.0,
+    )
+
+    user_aggregator = pipeline.processors[3]
+    start_strategies = user_aggregator._params.user_turn_strategies.start
+    wake_strategy = start_strategies[0]
+    assert isinstance(wake_strategy, WakePhraseUserTurnStartStrategy)
+    assert wake_strategy._phrases == [
+        "e aí, polaris",
+        "e aí, polares",
+        "ei, polaris",
+        "ei, polares",
+    ]
+    assert wake_strategy._timeout == 30.0
+    # Wake first, then the two pipecat defaults.
+    assert len(start_strategies) == 3
+
+
+def test_build_pipeline_no_wake_word_keeps_defaults():
+    transport = _FakeTransport()
+    stt, llm, tts = FrameProcessor(), FrameProcessor(), FrameProcessor()
+    context = LLMContext()
+
+    pipeline = build_pipeline(transport, stt, llm, tts, context, vad_analyzer=None)
+
+    user_aggregator = pipeline.processors[3]
+    # None means the pipecat defaults are used (current behavior, untouched).
+    assert user_aggregator._params.user_turn_strategies is None
 
 
 def test_build_services_picks_elevenlabs_tts():
