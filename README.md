@@ -12,7 +12,7 @@ Você  ──fala──▶  PIPECAT                      HERMES AGENT (processo 
                   ├─ sessão de voz          ──▶ └─ http://127.0.0.1:8642/v1
                   │      streaming SSE ◀────────┘  (POST /v1/chat/completions)
                   ├─ chunks → LLMTextFrame
-                  ├─ TTS (Kokoro local / ElevenLabs nuvem)
+                  ├─ TTS (Kokoro local / Qwen3-TTS local GPU / ElevenLabs nuvem)
                   └─ reprodução (speaker)
 ```
 
@@ -25,7 +25,7 @@ O Pipecat não duplica nada do Hermes — Polaris é essencialmente a ponte entr
 
 ### Streaming de ponta a ponta
 
-O texto do Hermes chega por SSE e cada chunk vira um `LLMTextFrame`, que o Pipecat encaminha ao TTS (Kokoro ou ElevenLabs, via `TTS_PROVIDER`) com **agregação por sentença** (nativa do `TTSService`). O TTS começa assim que a primeira sentença está completa — não há espera pela resposta inteira.
+O texto do Hermes chega por SSE e cada chunk vira um `LLMTextFrame`, que o Pipecat encaminha ao TTS (Kokoro, Qwen3-TTS ou ElevenLabs, via `TTS_PROVIDER`) com **agregação por sentença** (nativa do `TTSService`). O TTS começa assim que a primeira sentença está completa — não há espera pela resposta inteira.
 
 ### Sessão
 
@@ -48,6 +48,7 @@ Se você começar a falar enquanto o Polaris responde, o VAD do Pipecat dispara 
   sudo apt-get install -y portaudio19-dev
   ```
 - Microfone e saída de áudio
+- **GPU NVIDIA com CUDA** (obrigatória apenas para `TTS_PROVIDER=qwen3`; Kokoro e ElevenLabs funcionam sem)
 - [Hermes Agent](https://github.com/NousResearch/hermes-agent) instalado (CLI `hermes`)
 
 ## Instalação
@@ -59,11 +60,12 @@ uv pip install -r requirements.txt      # cria/abastece o venv com todas as deps
 cp .env.example .env                    # depois edite HERMES_API_KEY
 ```
 
-Dependências: `pipecat-ai[whisper,kokoro,local,elevenlabs]`, `python-dotenv`, `loguru`, `httpx`, libs NVIDIA CUDA 12 (`nvidia-cublas-cu12`, `nvidia-cudnn-cu12`, `nvidia-cuda-runtime-cu12`) (dev: `pytest`, `pytest-asyncio`, `respx`).
+Dependências: `pipecat-ai[whisper,kokoro,local,elevenlabs]`, `python-dotenv`, `loguru`, `httpx`, libs NVIDIA CUDA 12 (`nvidia-cublas-cu12`, `nvidia-cudnn-cu12`, `nvidia-cuda-runtime-cu12`), `qwen-tts` (puxa torch/torchaudio ~2,5 GB e pinna transformers/accelerate) (dev: `pytest`, `pytest-asyncio`, `respx`).
 
 Na primeira execução os modelos são baixados automaticamente:
 - Whisper (faster-whisper) para o cache do ctranslate2;
-- Kokoro (`kokoro-v1.0.onnx` + vozes) para `~/.cache/pipecat/kokoro-onnx/`.
+- Kokoro (`kokoro-v1.0.onnx` + vozes) para `~/.cache/pipecat/kokoro-onnx/`;
+- Qwen3-TTS (~1,5–2 GB) para `~/.cache/huggingface` (só quando `TTS_PROVIDER=qwen3`).
 
 ## Hermes
 
@@ -107,6 +109,43 @@ ELEVENLABS_API_KEY=...   # chave da API
 ELEVENLABS_VOICE_ID=...  # id da voz (premade ou clonada)
 ```
 
+## Voz Qwen3-TTS (local, GPU)
+
+Roda o **Qwen3-TTS 0.6B** (Apache-2.0) localmente na sua GPU NVIDIA — sem custo por uso, com qualidade superior ao Kokoro, porém **mais lento** (em GPUs de consumo cada sentença leva alguns segundos de síntese; a primeira fala também paga o carregamento do modelo no startup). Para latência mínima, mantenha o ElevenLabs.
+
+```env
+TTS_PROVIDER=qwen3
+QWEN3_MODEL=Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice   # ou ...-0.6B-Base (clonagem de voz)
+QWEN3_DEVICE=cuda            # cuda, cuda:0, cpu ou auto
+QWEN3_DTYPE=bfloat16         # float16, bfloat16 ou float32
+QWEN3_SPEAKER=Ryan           # voz padrão (todas abaixo)
+QWEN3_INSTRUCT=              # estilo opcional, ex.: "Fale devagar e com calma."
+```
+
+Vozes do CustomVoice (nenhuma é nativa em português — fala em pt-BR com sotaque):
+
+| Voz | Perfil | Língua nativa |
+|---|---|---|
+| Vivian | Feminina jovem e clara | Chinês |
+| Serena | Feminina suave e gentil | Chinês |
+| Uncle_Fu | Masculina madura e aveludada | Chinês |
+| Dylan | Masculina jovem (Pequim) | Chinês |
+| Eric | Masculina animada (Chengdu) | Chinês |
+| Ryan | Masculina dinâmica e ritmada | Inglês |
+| Aiden | Masculina americana ensolarada | Inglês |
+| Ono_Anna | Feminina japonesa brincalhona | Japonês |
+| Sohee | Feminina coreana calorosa | Coreano |
+
+**Clonagem de voz** (modelo `-Base`): clone a voz de um áudio de referência de ~3s — aí sim é possível uma voz nativa em português:
+
+```env
+QWEN3_MODEL=Qwen/Qwen3-TTS-12Hz-0.6B-Base
+QWEN3_REF_AUDIO=/caminho/para/ref.wav   # arquivo local ou URL (~3s)
+QWEN3_REF_TEXT=transcrição do áudio     # vazio = só o timbre, sem transcrição
+```
+
+Opções avançadas: `QWEN3_ATTN_IMPLEMENTATION` (vazio = sdpa; ou `flash_attention_2`, requer flash-attn instalado), `QWEN3_MAX_NEW_TOKENS` (default 4096), `QWEN3_TOP_P`.
+
 ## Wake word
 
 O Polaris pode ficar "dormindo" até ouvir uma frase de ativação (detectada na transcrição do Whisper — nenhum modelo extra):
@@ -117,7 +156,7 @@ WAKE_WORD_PHRASES=E aí, Polaris;Ei, Polaris;Polaris, tá aí?   # lista separad
 WAKE_WORD_TIMEOUT=10     # segundos de inatividade até voltar a dormir
 ```
 
-Comportamento: enquanto dorme, nada vai ao Hermes (as falas são descartadas); ao ouvir uma das frases (case-insensitive; as grafias "Polaris"/"Polares" são aceitas automaticamente — o Whisper costuma transcrever "polares"), o Polaris acorda e a conversa flui normalmente; após `WAKE_WORD_TIMEOUT` segundos sem fala, volta a dormir.
+Comportamento: enquanto dorme, nada vai ao Hermes (as falas são descartadas); ao ouvir uma das frases, o Polaris acorda e a conversa flui normalmente; após `WAKE_WORD_TIMEOUT` segundos sem fala, volta a dormir. O casamento é tolerante: ignora maiúsculas, pontuação e acentos (o Whisper costuma transcrever "polares" em vez de "Polaris" e omitir acentos — ambas as variantes são aceitas automaticamente).
 
 Exemplo de conversa:
 
@@ -145,8 +184,12 @@ A suíte cobre: configuração, criação do pipeline, parsing SSE, conversão d
 | `Library libcublas.so.12 is not found` | Rode via `./polaris.sh` (expõe as libs CUDA do pip via `LD_LIBRARY_PATH`) ou use `STT_DEVICE=cpu` |
 | Sem áudio do Kokoro | Confira `~/.cache/pipecat/kokoro-onnx/` (modelo + vozes); teste `TTS_VOICE=pm_alex` |
 | Sem áudio do ElevenLabs (log mostra erro de watchdog do TTS) | Vozes **library** (ex.: Fernanda) exigem plano pago: a API devolve `402 paid_plan_required` no free. No free só funcionam vozes **premade** via API — teste com `curl -X POST https://api.elevenlabs.io/v1/text-to-speech/{voice}?model_id=eleven_flash_v2_5 -H "xi-api-key: $ELEVENLABS_API_KEY" -H "Content-Type: application/json" -d '{"text":"oi"}'` |
+| Sem áudio do Qwen3 | Confira `nvidia-smi` (GPU visível?) e o log de carregamento "Loading Qwen3-TTS model..."; o download do modelo (~1,5–2 GB) só acontece na primeira execução, para `~/.cache/huggingface` — máquina offline falha no startup |
+| Warning `SoX could not be found` no Qwen3 | Inofensivo — o binário do SoX é usado só pelo tokenizer de 25 Hz dos modelos 1.7B; o 0.6B (12 Hz) não precisa |
+| `CUDA out of memory` do Qwen3 | Reduza `QWEN3_MAX_NEW_TOKENS` (ex.: 2048) ou use `QWEN3_DTYPE=float16` |
+| Primeira fala do Qwen3 demorada | Esperado: o modelo carrega no startup e a síntese em GPU de consumo é mais lenta que tempo real (RTF > 1) — para latência mínima use ElevenLabs |
 | Latência alta | `STT_MODEL=base` (ou `tiny`), `STT_COMPUTE_TYPE=int8`, e menos tempo de silêncio no VAD |
-| Não acorda com a wake word | Confira `WAKE_WORD_ENABLED=true` e as frases em `WAKE_WORD_PHRASES` (separadas por `;`); se o Whisper transcrever diferente (ex.: sem acento), adicione essa variante à lista |
+| Não acorda com a wake word | Confira `WAKE_WORD_ENABLED=true` e as frases em `WAKE_WORD_PHRASES` (separadas por `;`); pontuação, acentos e as grafias "Polaris"/"Polares" já são normalizados automaticamente — se mesmo assim não acordar, rode com `LOG_LEVEL=DEBUG` e veja as transcrições do Whisper (`STT`/`wake phrase detected`) para conferir como ele está transcrevendo a frase |
 | Respostas truncadas/interrompidas | Confira microfone (o VAD pode estar interpretando ruído como barge-in) |
 
 ## Roadmap

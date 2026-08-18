@@ -7,6 +7,9 @@ httpx>=0.28.1
 loguru>=0.7.3
 pipecat-ai[kokoro,local,whisper,elevenlabs]>=1.4.0,<2.0
 python-dotenv>=1.2.2
+# Qwen3-TTS local (TTS_PROVIDER=qwen3). Puxa torch/torchaudio (wheels CUDA
+# p/ Linux) e pinna transformers/accelerate por conta própria.
+qwen-tts>=0.1.1,<0.2
 
 # CUDA runtime p/ Whisper em GPU (STT_DEVICE=cuda). O ctranslate2 não embute
 # essas libs; o run.sh ajusta o LD_LIBRARY_PATH para o Python enxergá-las.

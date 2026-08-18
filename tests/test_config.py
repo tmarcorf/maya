@@ -117,6 +117,127 @@ def test_elevenlabs_model_override(monkeypatch):
     assert load_settings().elevenlabs_model_id == "eleven_turbo_v2_5"
 
 
+def test_qwen3_defaults_when_unset(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+    monkeypatch.setenv("TTS_PROVIDER", "qwen3")
+    monkeypatch.delenv("QWEN3_MODEL", raising=False)
+    monkeypatch.delenv("QWEN3_DEVICE", raising=False)
+    monkeypatch.delenv("QWEN3_DTYPE", raising=False)
+    monkeypatch.delenv("QWEN3_SPEAKER", raising=False)
+
+    settings = load_settings()
+
+    assert settings.qwen3_model == "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
+    assert settings.qwen3_device == "cuda"
+    assert settings.qwen3_dtype == "bfloat16"
+    assert settings.qwen3_attn_implementation is None
+    assert settings.qwen3_speaker == "Ryan"
+    assert settings.qwen3_instruct == ""
+    assert settings.qwen3_ref_audio == ""
+    assert settings.qwen3_ref_text == ""
+    assert settings.qwen3_max_new_tokens == 4096
+    assert settings.qwen3_top_p is None
+
+
+def test_qwen3_settings_loaded(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+    monkeypatch.setenv("TTS_PROVIDER", "qwen3")
+    monkeypatch.setenv("QWEN3_MODEL", "Qwen/Qwen3-TTS-12Hz-0.6B-Base")
+    monkeypatch.setenv("QWEN3_DEVICE", "cuda:0")
+    monkeypatch.setenv("QWEN3_DTYPE", "float16")
+    monkeypatch.setenv("QWEN3_ATTN_IMPLEMENTATION", "flash_attention_2")
+    monkeypatch.setenv("QWEN3_SPEAKER", "Vivian")
+    monkeypatch.setenv("QWEN3_INSTRUCT", "Fale devagar.")
+    monkeypatch.setenv("QWEN3_REF_AUDIO", "https://example.com/ref.wav")
+    monkeypatch.setenv("QWEN3_REF_TEXT", "Olá mundo.")
+    monkeypatch.setenv("QWEN3_MAX_NEW_TOKENS", "2048")
+    monkeypatch.setenv("QWEN3_TOP_P", "0.9")
+
+    settings = load_settings()
+
+    assert settings.qwen3_model == "Qwen/Qwen3-TTS-12Hz-0.6B-Base"
+    assert settings.qwen3_device == "cuda:0"
+    assert settings.qwen3_dtype == "float16"
+    assert settings.qwen3_attn_implementation == "flash_attention_2"
+    assert settings.qwen3_speaker == "Vivian"
+    assert settings.qwen3_instruct == "Fale devagar."
+    assert settings.qwen3_ref_audio == "https://example.com/ref.wav"
+    assert settings.qwen3_ref_text == "Olá mundo."
+    assert settings.qwen3_max_new_tokens == 2048
+    assert settings.qwen3_top_p == 0.9
+
+
+def test_qwen3_base_requires_ref_audio(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+    monkeypatch.setenv("TTS_PROVIDER", "qwen3")
+    monkeypatch.setenv("QWEN3_MODEL", "Qwen/Qwen3-TTS-12Hz-0.6B-Base")
+    with pytest.raises(ValueError, match="QWEN3_REF_AUDIO"):
+        load_settings()
+
+
+def test_qwen3_ref_audio_rejected_with_customvoice(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+    monkeypatch.setenv("TTS_PROVIDER", "qwen3")
+    monkeypatch.setenv("QWEN3_REF_AUDIO", "https://example.com/ref.wav")
+    with pytest.raises(ValueError, match="QWEN3_REF_AUDIO"):
+        load_settings()
+
+
+def test_qwen3_ref_audio_file_must_exist(monkeypatch, tmp_path):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+    monkeypatch.setenv("TTS_PROVIDER", "qwen3")
+    monkeypatch.setenv("QWEN3_MODEL", "Qwen/Qwen3-TTS-12Hz-0.6B-Base")
+    monkeypatch.setenv("QWEN3_REF_AUDIO", "/no/such/file.wav")
+    with pytest.raises(ValueError, match="not found"):
+        load_settings()
+
+    # A real local file (or a URL) passes validation.
+    ref = tmp_path / "ref.wav"
+    ref.write_bytes(b"RIFF")
+    monkeypatch.setenv("QWEN3_REF_AUDIO", str(ref))
+    assert load_settings().qwen3_ref_audio == str(ref)
+
+
+def test_qwen3_invalid_device_raises(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+    monkeypatch.setenv("TTS_PROVIDER", "qwen3")
+    monkeypatch.setenv("QWEN3_DEVICE", "weird")
+    with pytest.raises(ValueError, match="QWEN3_DEVICE"):
+        load_settings()
+
+
+def test_qwen3_invalid_dtype_raises(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+    monkeypatch.setenv("TTS_PROVIDER", "qwen3")
+    monkeypatch.setenv("QWEN3_DTYPE", "int4")
+    with pytest.raises(ValueError, match="QWEN3_DTYPE"):
+        load_settings()
+
+
+def test_qwen3_invalid_attn_implementation_raises(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+    monkeypatch.setenv("TTS_PROVIDER", "qwen3")
+    monkeypatch.setenv("QWEN3_ATTN_IMPLEMENTATION", "eager_x")
+    with pytest.raises(ValueError, match="QWEN3_ATTN_IMPLEMENTATION"):
+        load_settings()
+
+
+def test_qwen3_invalid_max_new_tokens_raises(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+    monkeypatch.setenv("TTS_PROVIDER", "qwen3")
+    monkeypatch.setenv("QWEN3_MAX_NEW_TOKENS", "abc")
+    with pytest.raises(ValueError, match="QWEN3_MAX_NEW_TOKENS"):
+        load_settings()
+
+
+def test_qwen3_invalid_top_p_raises(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+    monkeypatch.setenv("TTS_PROVIDER", "qwen3")
+    monkeypatch.setenv("QWEN3_TOP_P", "abc")
+    with pytest.raises(ValueError, match="QWEN3_TOP_P"):
+        load_settings()
+
+
 def test_wake_word_defaults_when_unset(monkeypatch):
     monkeypatch.setenv("HERMES_API_KEY", "secret-123")
     monkeypatch.delenv("WAKE_WORD_ENABLED", raising=False)

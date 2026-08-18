@@ -14,6 +14,7 @@ which tells Hermes to cancel the agent turn it was running.
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
@@ -45,12 +46,34 @@ def _tts_language(settings: Settings) -> Language:
     return Language(value)
 
 
-def _expand_wake_phrases(phrases: list[str]) -> list[str]:
-    """Add polaris↔polares variants to each wake phrase, keeping order/dedup.
+def _normalize_wake_phrase(phrase: str) -> str:
+    """Lowercase, strip punctuation and collapse whitespace.
 
-    Whisper frequently transcribes the assistant's name as "polares" instead
-    of "polaris" (observed live), so both spellings must match. Phrases are
-    lowercased because matching is case-insensitive anyway.
+    Mirrors what the pipecat wake strategy does to the transcribed text
+    before matching (``_strip_punctuation``): a phrase keeping punctuation
+    here would build a regex that can never match the stripped transcription.
+    """
+    text = re.sub(r"[^\w\s]", "", phrase).lower()
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _strip_accents(text: str) -> str:
+    """Remove diacritics ("tá" → "ta")."""
+    decomposed = unicodedata.normalize("NFD", text)
+    return "".join(ch for ch in decomposed if unicodedata.category(ch) != "Mn")
+
+
+def _expand_wake_phrases(phrases: list[str]) -> list[str]:
+    """Expand wake phrases into normalized variants that can actually match.
+
+    The pipecat ``WakePhraseUserTurnStartStrategy`` strips punctuation from
+    the transcribed text but builds its regexes from the phrases verbatim,
+    so punctuation here would make the phrase unmatchable; accents are also
+    required literally, while Whisper often drops them ("ta" for "tá").
+    Each phrase is therefore normalized (punctuation removed, lowercased)
+    and, when it has accents, an accent-stripped variant is added too. The
+    polaris↔polares expansion covers Whisper's frequent mishearing of the
+    assistant's name. Order is kept and duplicates are dropped.
     """
     expanded: list[str] = []
     for phrase in phrases:
@@ -59,18 +82,22 @@ def _expand_wake_phrases(phrases: list[str]) -> list[str]:
             re.sub(r"polaris", "polares", phrase, flags=re.IGNORECASE),
             re.sub(r"polares", "polaris", phrase, flags=re.IGNORECASE),
         ):
-            candidate = candidate.lower()
-            if candidate not in expanded:
-                expanded.append(candidate)
+            for variant in (
+                _normalize_wake_phrase(candidate),
+                _normalize_wake_phrase(_strip_accents(candidate)),
+            ):
+                if variant and variant not in expanded:
+                    expanded.append(variant)
     return expanded
 
 
 def _build_tts_service(settings: Settings):
     """Instantiate the TTS service selected by TTS_PROVIDER.
 
-    Kokoro runs locally; ElevenLabs streams audio over a WebSocket
-    (multi-stream-input) and needs internet + an API key. Imported lazily
-    so tests never pay for the module import.
+    Kokoro runs locally (CPU); Qwen3-TTS also runs locally but needs a
+    CUDA GPU; ElevenLabs streams audio over a WebSocket (multi-stream-input)
+    and needs internet + an API key. Imported lazily so tests never pay for
+    the module import.
     """
     if settings.tts_provider == "elevenlabs":
         from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
@@ -84,6 +111,25 @@ def _build_tts_service(settings: Settings):
                 # language_code=pt to the WS URL. Ignored (with a warning)
                 # if a non-multilingual model is configured.
                 language=_tts_language(settings),
+            ),
+            sample_rate=VOICE_AGENT_SAMPLE_RATE,
+        )
+    if settings.tts_provider == "qwen3":
+        from pipeline.qwen3_tts import Qwen3TTSService
+
+        return Qwen3TTSService(
+            model_id=settings.qwen3_model,
+            device=settings.qwen3_device,
+            dtype=settings.qwen3_dtype,
+            attn_implementation=settings.qwen3_attn_implementation,
+            max_new_tokens=settings.qwen3_max_new_tokens,
+            top_p=settings.qwen3_top_p,
+            settings=Qwen3TTSService.Settings(
+                voice=settings.qwen3_speaker,
+                language=_tts_language(settings),
+                instruct=settings.qwen3_instruct or None,
+                ref_audio=settings.qwen3_ref_audio or None,
+                ref_text=settings.qwen3_ref_text or None,
             ),
             sample_rate=VOICE_AGENT_SAMPLE_RATE,
         )

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import numpy as np
+import pytest
+from pipecat.frames.frames import TTSAudioRawFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
@@ -15,6 +18,7 @@ from pipecat.turns.user_start.wake_phrase_user_turn_start_strategy import (
 )
 
 from pipeline.hermes import HermesSessionManager
+from pipeline.qwen3_tts import Qwen3TTSService
 from pipeline.voice_pipeline import (
     _expand_wake_phrases,
     build_pipeline,
@@ -73,17 +77,48 @@ def test_build_pipeline_defaults_to_silero_vad():
 def test_expand_wake_phrases_adds_polares_variants():
     phrases = ["E aí, Polaris", "Ei, polares", "Olá"]
     assert _expand_wake_phrases(phrases) == [
-        "e aí, polaris",
-        "e aí, polares",
-        "ei, polares",
-        "ei, polaris",
+        "e aí polaris",
+        "e ai polaris",
+        "e aí polares",
+        "e ai polares",
+        "ei polares",
+        "ei polaris",
         "olá",
+        "ola",
     ]
 
 
 def test_expand_wake_phrases_dedups():
     # "Polares" already covers both spellings of the name (case-insensitive).
     assert _expand_wake_phrases(["Polaris", "Polares"]) == ["polaris", "polares"]
+
+
+class _StubTaskManager:
+    """Minimal task manager so _check_wake_phrase can fire the detected event."""
+
+    def create_task(self, _coro, _name=None):
+        return None
+
+
+def test_wake_phrases_match_realistic_stt_output():
+    """The pipecat strategy strips punctuation from transcriptions but builds
+    its patterns from the phrases — expanded phrases must match anyway."""
+    phrases = _expand_wake_phrases(["E aí, Polaris", "Ei, Polaris", "Polaris, tá aí?"])
+    strategy = WakePhraseUserTurnStartStrategy(phrases=phrases, timeout=10)
+    strategy._task_manager = _StubTaskManager()
+
+    for transcription in (
+        "E aí, Polaris",
+        "e aí polares",  # Whisper mishears the assistant's name.
+        "e ai polaris",  # Whisper drops the accent.
+        "Ei, Polaris",
+        "Polaris tá aí",
+        "polares ta ai",  # accent + name misspelling.
+    ):
+        assert strategy._check_wake_phrase(transcription), transcription
+
+    # Unrelated speech must not wake the agent.
+    assert not strategy._check_wake_phrase("Que horas são?")
 
 
 def test_build_pipeline_wake_word_enabled():
@@ -108,10 +143,12 @@ def test_build_pipeline_wake_word_enabled():
     wake_strategy = start_strategies[0]
     assert isinstance(wake_strategy, WakePhraseUserTurnStartStrategy)
     assert wake_strategy._phrases == [
-        "e aí, polaris",
-        "e aí, polares",
-        "ei, polaris",
-        "ei, polares",
+        "e aí polaris",
+        "e ai polaris",
+        "e aí polares",
+        "e ai polares",
+        "ei polaris",
+        "ei polares",
     ]
     assert wake_strategy._timeout == 30.0
     # Wake first, then the two pipecat defaults.
@@ -154,3 +191,119 @@ def test_build_services_picks_elevenlabs_tts():
     assert tts._settings.model == "eleven_flash_v2_5"
     # Language.PT_BR is converted to the service string "pt" at init.
     assert tts._settings.language == "pt"
+
+
+class _FakeQwenModel:
+    """Mimics qwen_tts.Qwen3TTSModel without torch (see _load_qwen_model).
+
+    Stores ``speakers`` exactly as passed: None is meaningful (non-CustomVoice
+    checkpoints expose no speaker list).
+    """
+
+    def __init__(self, speakers=None, wavs=None, sr=24000):
+        self._speakers = speakers
+        self._wavs = wavs
+        self._sr = sr
+
+    def get_supported_speakers(self):
+        return self._speakers
+
+    def generate_custom_voice(
+        self, text, speaker, language=None, instruct=None, non_streaming_mode=True, **kwargs
+    ):
+        """Mirrors the real qwen_tts signature (speaker before language)."""
+        return self._wavs, self._sr
+
+
+def _fake_qwen_model(monkeypatch, speakers=None, wavs=None, sr=24000):
+    """Install a fake model via monkeypatch (None defaults to ["Ryan"])."""
+    model = _FakeQwenModel(
+        speakers=speakers if speakers is not None else ["Ryan"],
+        wavs=wavs,
+        sr=sr,
+    )
+    monkeypatch.setattr("pipeline.qwen3_tts._load_qwen_model", lambda *a, **k: model)
+    return model
+
+
+def test_build_services_picks_qwen3_tts(monkeypatch):
+    """TTS_PROVIDER=qwen3 selects the Qwen3 service, without torch in tests.
+
+    Safe: `pipeline.qwen3_tts` only imports light modules at module level;
+    the heavy torch/qwen-tts import lives inside _load_qwen_model, which is
+    monkeypatched here.
+    """
+    _fake_qwen_model(monkeypatch)
+    settings = make_settings(tts_provider="qwen3")
+    _, _, _, tts, _, _ = build_services(
+        settings,
+        transport=_FakeTransport(),
+        stt=FrameProcessor(),
+        llm=FrameProcessor(),
+        context=LLMContext(),
+        session_manager=HermesSessionManager("voice-session-test"),
+    )
+    assert isinstance(tts, Qwen3TTSService)
+    assert tts._settings.voice == "Ryan"
+    # Language.PT_BR is converted to the qwen-tts name at init.
+    assert tts._settings.language == "Portuguese"
+    assert tts._init_sample_rate == 24000
+
+
+def test_qwen3_service_rejects_unknown_speaker(monkeypatch):
+    _fake_qwen_model(monkeypatch, speakers=["Ryan"])
+    with pytest.raises(ValueError, match="QWEN3_SPEAKER"):
+        Qwen3TTSService(
+            model_id="Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+            settings=Qwen3TTSService.Settings(voice="Nobody"),
+            sample_rate=24000,
+        )
+
+
+def test_qwen3_service_normalizes_speaker_case(monkeypatch):
+    """The hub lists speakers in lowercase; the model card uses Title Case."""
+    _fake_qwen_model(monkeypatch, speakers=["ryan", "serena"])
+    service = Qwen3TTSService(
+        model_id="Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+        settings=Qwen3TTSService.Settings(voice="Ryan"),
+        sample_rate=24000,
+    )
+    assert service._speaker == "ryan"
+
+
+def test_qwen3_service_rejects_model_without_speaker_list(monkeypatch):
+    """Non-CustomVoice checkpoints expose no speakers (get returns None)."""
+    model = _FakeQwenModel(speakers=None)
+    monkeypatch.setattr("pipeline.qwen3_tts._load_qwen_model", lambda *a, **k: model)
+    with pytest.raises(ValueError, match="speaker list"):
+        Qwen3TTSService(
+            model_id="Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+            settings=Qwen3TTSService.Settings(voice="Ryan"),
+            sample_rate=24000,
+        )
+
+
+async def test_qwen3_run_tts_yields_audio_frame(monkeypatch):
+    """One aggregated sentence → one resampled audio frame.
+
+    Metrics calls are no-ops outside a running pipeline (metrics_enabled is
+    False by default); _sample_rate is set by StartFrame in production, so
+    the test sets it directly.
+    """
+    sr = 24000
+    _fake_qwen_model(monkeypatch, wavs=[np.zeros((1, sr), dtype=np.float32)], sr=sr)
+    service = Qwen3TTSService(
+        model_id="Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+        settings=Qwen3TTSService.Settings(voice="Ryan"),
+        sample_rate=sr,
+    )
+    service._sample_rate = sr
+
+    frames = [frame async for frame in service.run_tts("olá", "ctx-1")]
+
+    assert len(frames) == 1
+    frame = frames[0]
+    assert isinstance(frame, TTSAudioRawFrame)
+    assert frame.sample_rate == sr
+    assert frame.num_channels == 1
+    assert len(frame.audio) > 0

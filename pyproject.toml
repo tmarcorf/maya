@@ -7,6 +7,9 @@ dependencies = [
     "loguru>=0.7.3",
     "pipecat-ai[kokoro,local,whisper,elevenlabs]>=1.4.0,<2.0",
     "python-dotenv>=1.2.2",
+    # Qwen3-TTS local (TTS_PROVIDER=qwen3). Pulls torch/torchaudio (CUDA
+    # wheels on Linux) and pins transformers/accelerate on its own.
+    "qwen-tts>=0.1.1,<0.2",
     # CUDA runtime libs: ctranslate2/faster-whisper needs them for
     # STT_DEVICE=cuda but does not bundle them — run.sh exposes the wheel
     # lib dirs via LD_LIBRARY_PATH.
