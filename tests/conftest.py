@@ -6,7 +6,6 @@ import pytest
 from pipecat.processors.aggregators.llm_context import LLMContext
 
 from config.settings import Settings
-from pipeline.fillers import FillerController
 from pipeline.hermes import HermesLLMService, HermesSessionManager
 
 HERMES_BASE_URL = "http://127.0.0.1:8642/v1"
@@ -41,7 +40,6 @@ def make_settings(**overrides) -> Settings:
 
 def make_service(
     session_manager: HermesSessionManager | None = None,
-    filler: FillerController | None = None,
     **settings_overrides,
 ) -> HermesLLMService:
     """Build a HermesLLMService wired with test settings."""
@@ -52,7 +50,6 @@ def make_service(
         model=settings.hermes_model,
         session_manager=session_manager
         or HermesSessionManager(settings.hermes_app_session_id),
-        filler=filler,
     )
 
 

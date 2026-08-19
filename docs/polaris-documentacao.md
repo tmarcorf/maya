@@ -408,18 +408,15 @@ Hermes: `API_SERVER_PORT` em `~/.hermes/.env`. Polaris: `HERMES_BASE_URL` no `.e
 ### Novos eventos SSE do Hermes
 Tudo passa por `parse_chat_chunk()` em `pipeline/hermes.py` — chunks desconhecidos são descartados de forma tolerante. Para tratar um evento novo (ex.: `hermes.thinking`), adicione um branch em `parse_chat_chunk` e decida em `_process_context` se vira `LLMTextFrame`, log ou nada.
 
-### Falar status de ferramenta (implementado — spec §15)
-`tool_progress` continua sendo observabilidade (log), mas com `FILLER_ENABLED=true` (default) a Polaris também **fala fillers curados em pt-BR** durante tarefas longas: frase de início de tarefa ("Hmm, deixa eu ver"), narração por ferramenta (`status=="running"` + nome conhecido → "vou mexer no terminal"; desconhecida → pool genérico) e, se o stream ficar mudo por `FILLER_SILENCE_TIMEOUT` s, frase de continuação ("só mais um instante"). Tudo mora em `pipeline/fillers.py` (`FillerController`, lógica pura) + `pipeline/hermes.py`.
+### Falar status de ferramenta (futuro, decisão explícita — spec §15)
+Hoje `tool_progress` é só log. Para falar algo ("Vou verificar isso..."), gere texto na **camada de voz**, em `_process_context`, ex.:
 
-**Por que `TTSSpeakFrame(text, append_to_context=False)` e não `_push_llm_text`:** o sketch antigo desta seção usava `_push_llm_text("Só um instante...")` — isso empurra um `LLMTextFrame` para o agregador de sentenças do TTS, ou seja, **emendaria o filler no meio de uma frase pendente do Hermes** (garble) e **poluiria o contexto** do assistente. O `TTSSpeakFrame` é uma elocução standalone no `tts_service.py` (verificado em 1.7.0): bypassa o `_text_aggregator`, salva/restaura o estado do turno, e com `append_to_context=False` não entra no contexto. Passar `False` **explícito** (`None` é coerced a `True` com deprecation warning).
+```python
+if chunk.tool_progress and chunk.tool_progress.get("status") == "running":
+    await self._push_llm_text("Só um instante...")
+```
 
-**Watchdog de silêncio:** task asyncio independente criada com `FrameProcessor.create_task` antes do loop de chunks e cancelada no `finally` (barge-in-safe, com `suppress`). Nunca usar `asyncio.wait_for(anext())` — cancelaria o read httpx pendente e abortaria o turno (o read timeout é `None` de propósito). O keepalive (`: keepalive`, 30 s) não reseta o relógio de silêncio — `parse_sse_lines` o consome sem gerar chunk, e conexão viva ≠ fala.
-
-**Gates anti-tagarelice** (tudo no `FillerController`, relógio monotônico injetável): 1 filler por `toolCallId` (id ausente → 1 por turno), `FILLER_MIN_INTERVAL` entre frases, `FILLER_MAX_PER_TURN` por turno, sem frase repetida em sequência; qualquer chunk reseta o relógio e o próprio filler também (ele *é* a fala).
-
-**Knobs (`FILLER_*` no `.env`):** `FILLER_ENABLED` (default true), `FILLER_SILENCE_TIMEOUT` (7), `FILLER_MIN_INTERVAL` (4), `FILLER_MAX_PER_TURN` (3), `FILLER_GENERIC_PHRASES`, `FILLER_SILENCE_PHRASES` (listas `;`), `FILLER_TOOL_PHRASES` (`tool=frase;...`; tool desconhecida → genérica). `FILLER_ENABLED=true` com pool genérica vazia → `ValueError` no startup.
-
-**Nunca leia o payload do evento diretamente no TTS.** Só o *nome* da tool escolhe o pool; `label`/`delta`/`toolCallId` nunca viram fala.
+Nunca leia o payload do evento diretamente no TTS.
 
 ### Timeouts
 `connect_timeout_secs=10.0` no construtor do `HermesLLMService`. O read timeout é `None` de propósito (turnos com ferramenta demoram); o keepalive do Hermes (30 s) mantém a conexão viva. Para limitar turnos, use `asyncio.wait_for` em `_process_context` — mas prefira o barge-in como mecanismo de cancelamento.
