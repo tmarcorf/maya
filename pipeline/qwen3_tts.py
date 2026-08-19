@@ -12,6 +12,11 @@ a thread; a per-service lock serializes synthesis calls so a leftover
 `asyncio.to_thread` from a barge-in cannot overlap the next turn's
 generation on the same GPU.
 
+For -Base checkpoints the voice prompt is frozen at construction:
+`create_voice_clone_prompt` runs once at startup and every sentence
+reuses the same prompt, so the cloned timbre is stable across the whole
+session (empty `ref_text` = timbre-only/x-vector mode).
+
 Heavy imports (torch, qwen_tts) live inside `_load_qwen_model` so tests
 never pay for them and can monkeypatch the function instead.
 """
@@ -158,6 +163,8 @@ def _to_int16_bytes(wav) -> bytes:
 class Qwen3TTSService(TTSService):
     Settings = Qwen3TTSSettings
     _settings: Settings
+    # Frozen voice-clone prompt for -Base checkpoints (None for CustomVoice).
+    _voice_clone_prompt: list | dict | None
 
     def __init__(
         self,
@@ -199,7 +206,18 @@ class Qwen3TTSService(TTSService):
         self._speaker = assert_given(self._settings.voice)
         self._ref_audio = assert_given(self._settings.ref_audio)
         self._ref_text = assert_given(self._settings.ref_text)
-        if not self._ref_audio:
+        if self._ref_audio:
+            # Frozen voice: extract the speaker features ONCE at startup and
+            # reuse the same prompt for every sentence. Empty ref_text →
+            # timbre-only (x-vector) clone; provided ref_text → full ICL
+            # clone. Both are "locked" here: per-sentence generate calls
+            # only pass the precomputed prompt, so the timbre never drifts.
+            self._voice_clone_prompt = self._model.create_voice_clone_prompt(
+                ref_audio=self._ref_audio,
+                ref_text=self._ref_text or None,
+                x_vector_only_mode=not self._ref_text,
+            )
+        else:
             supported = self._model.get_supported_speakers()
             if supported is None:
                 raise ValueError(
@@ -217,6 +235,7 @@ class Qwen3TTSService(TTSService):
                     f"(supported: {', '.join(sorted(supported))})."
                 )
             self._speaker = canonical[self._speaker.lower()]
+            self._voice_clone_prompt = None
 
         # asyncio.to_thread work survives cancellation (barge-in); the lock
         # keeps a leftover generation from overlapping the next turn's.
@@ -264,19 +283,18 @@ class Qwen3TTSService(TTSService):
             await self.stop_ttfb_metrics()
 
     def _synthesize(self, text: str, language: str):
-        """Blocking generate call; runs inside asyncio.to_thread."""
-        # All keyword args: generate_custom_voice is (text, speaker, ...)
-        # while generate_voice_clone is (text, language, ...) — positional
-        # calls would land on the wrong parameter.
+        """Blocking generate call; runs inside asyncio.to_thread.
+
+        All keyword args: generate_custom_voice is (text, speaker, ...)
+        while generate_voice_clone is (text, language, ...) — positional
+        calls would land on the wrong parameter. For -Base checkpoints the
+        voice prompt was frozen at construction; no per-call re-extraction.
+        """
         if self._ref_audio:
-            ref_text = self._ref_text or None
             return self._model.generate_voice_clone(
                 text=text,
                 language=language,
-                ref_audio=self._ref_audio,
-                ref_text=ref_text,
-                voice_clone_prompt=None,
-                x_vector_only_mode=ref_text is None,
+                voice_clone_prompt=self._voice_clone_prompt,
                 **self._gen_kwargs,
             )
         return self._model.generate_custom_voice(

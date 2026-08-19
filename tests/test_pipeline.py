@@ -208,6 +208,35 @@ class _FakeQwenModel:
     def get_supported_speakers(self):
         return self._speakers
 
+    def create_voice_clone_prompt(self, ref_audio=None, ref_text=None, x_vector_only_mode=False):
+        """Mirrors qwen_tts; returns a dict the service treats as opaque."""
+        self.last_prompt_kwargs = {
+            "ref_audio": ref_audio,
+            "ref_text": ref_text,
+            "x_vector_only_mode": x_vector_only_mode,
+        }
+        return {"frozen": True, **self.last_prompt_kwargs}
+
+    def generate_voice_clone(
+        self,
+        text,
+        language=None,
+        ref_audio=None,
+        ref_text=None,
+        x_vector_only_mode=False,
+        voice_clone_prompt=None,
+        non_streaming_mode=True,
+        **kwargs,
+    ):
+        """Mirrors the real qwen_tts signature; records how it was called."""
+        self.last_clone_call = {
+            "ref_audio": ref_audio,
+            "ref_text": ref_text,
+            "x_vector_only_mode": x_vector_only_mode,
+            "voice_clone_prompt": voice_clone_prompt,
+        }
+        return self._wavs, self._sr
+
     def generate_custom_voice(
         self, text, speaker, language=None, instruct=None, non_streaming_mode=True, **kwargs
     ):
@@ -307,3 +336,69 @@ async def test_qwen3_run_tts_yields_audio_frame(monkeypatch):
     assert frame.sample_rate == sr
     assert frame.num_channels == 1
     assert len(frame.audio) > 0
+
+
+async def test_qwen3_frozen_timbre_prompt_built_once(monkeypatch):
+    """-Base + ref_audio (no ref_text): prompt frozen at init, reused per call.
+
+    The voice is locked at construction: x-vector (timbre-only) mode, and
+    every synthesize call passes only the precomputed prompt — no
+    per-sentence ref_audio/ref_text re-extraction.
+    """
+    sr = 24000
+    model = _fake_qwen_model(
+        monkeypatch,
+        speakers=None,
+        wavs=[np.zeros((1, sr), dtype=np.float32)],
+        sr=sr,
+    )
+    service = Qwen3TTSService(
+        model_id="Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+        settings=Qwen3TTSService.Settings(
+            voice="",
+            ref_audio="/tmp/ref.wav",
+            ref_text=None,
+        ),
+        sample_rate=sr,
+    )
+    service._sample_rate = sr
+
+    # Prompt extracted exactly once, in timbre-only mode.
+    prompt = service._voice_clone_prompt
+    assert prompt is not None
+    assert prompt["frozen"] is True
+    assert prompt["x_vector_only_mode"] is True
+    assert model.last_prompt_kwargs["ref_text"] is None
+
+    # Synthesize twice: both calls reuse the frozen prompt, no re-extraction.
+    for _ in range(2):
+        frames = [frame async for frame in service.run_tts("olá", "ctx-1")]
+        assert len(frames) == 1 and isinstance(frames[0], TTSAudioRawFrame)
+
+    assert model.last_clone_call["voice_clone_prompt"] is service._voice_clone_prompt
+    assert model.last_clone_call["ref_audio"] is None
+    assert model.last_clone_call["ref_text"] is None
+    assert model.last_clone_call["x_vector_only_mode"] is False  # unused with prompt
+
+
+def test_qwen3_frozen_icl_prompt_with_ref_text(monkeypatch):
+    """-Base + ref_audio + ref_text: full ICL clone, also frozen at init."""
+    sr = 24000
+    model = _fake_qwen_model(
+        monkeypatch,
+        speakers=None,
+        wavs=[np.zeros((1, sr), dtype=np.float32)],
+        sr=sr,
+    )
+    service = Qwen3TTSService(
+        model_id="Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+        settings=Qwen3TTSService.Settings(
+            voice="",
+            ref_audio="/tmp/ref.wav",
+            ref_text="This is the reference transcript.",
+        ),
+        sample_rate=sr,
+    )
+
+    assert service._voice_clone_prompt["x_vector_only_mode"] is False
+    assert model.last_prompt_kwargs["ref_text"] == "This is the reference transcript."
