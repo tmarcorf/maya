@@ -270,3 +270,95 @@ def test_wake_word_enabled_requires_phrases(monkeypatch):
     monkeypatch.setenv("WAKE_WORD_PHRASES", " ; ")
     with pytest.raises(ValueError, match="WAKE_WORD_PHRASES"):
         load_settings()
+
+
+def test_filler_defaults_when_env_unset(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+    monkeypatch.delenv("FILLER_ENABLED", raising=False)
+    monkeypatch.delenv("FILLER_SILENCE_TIMEOUT", raising=False)
+    monkeypatch.delenv("FILLER_MIN_INTERVAL", raising=False)
+    monkeypatch.delenv("FILLER_MAX_PER_TURN", raising=False)
+    monkeypatch.delenv("FILLER_GENERIC_PHRASES", raising=False)
+    monkeypatch.delenv("FILLER_SILENCE_PHRASES", raising=False)
+    monkeypatch.delenv("FILLER_TOOL_PHRASES", raising=False)
+
+    settings = load_settings()
+
+    # Fillers are on by default (unlike the wake word).
+    assert settings.filler_enabled is True
+    assert settings.filler_silence_timeout == 7.0
+    assert settings.filler_min_interval == 4.0
+    assert settings.filler_max_per_turn == 3
+    assert settings.filler_generic_phrases == [
+        "Hmm, deixa eu ver",
+        "Blz, vou olhar",
+        "Só um instante",
+        "Vou verificar isso",
+    ]
+    assert settings.filler_silence_phrases == [
+        "só mais um instante",
+        "ainda estou nisso",
+        "já já te falo",
+    ]
+    assert settings.filler_tool_phrases["terminal"] == "vou mexer no terminal"
+    assert settings.filler_tool_phrases["browser"] == "vou abrir o navegador"
+
+
+def test_filler_settings_loaded(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+    monkeypatch.setenv("FILLER_ENABLED", "false")
+    monkeypatch.setenv("FILLER_SILENCE_TIMEOUT", "9")
+    monkeypatch.setenv("FILLER_MIN_INTERVAL", "2")
+    monkeypatch.setenv("FILLER_MAX_PER_TURN", "5")
+    monkeypatch.setenv("FILLER_GENERIC_PHRASES", " Frase um ;; Frase dois ")
+    monkeypatch.setenv("FILLER_SILENCE_PHRASES", " ; continua ;")
+    monkeypatch.setenv("FILLER_TOOL_PHRASES", "terminal=vou mexer;browser=vou olhar")
+
+    settings = load_settings()
+
+    assert settings.filler_enabled is False
+    assert settings.filler_silence_timeout == 9.0
+    assert settings.filler_min_interval == 2.0
+    assert settings.filler_max_per_turn == 5
+    assert settings.filler_generic_phrases == ["Frase um", "Frase dois"]
+    assert settings.filler_silence_phrases == ["continua"]
+    assert settings.filler_tool_phrases == {
+        "terminal": "vou mexer",
+        "browser": "vou olhar",
+    }
+
+
+def test_filler_invalid_timeout_raises(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+    monkeypatch.setenv("FILLER_SILENCE_TIMEOUT", "abc")
+    with pytest.raises(ValueError, match="FILLER_SILENCE_TIMEOUT"):
+        load_settings()
+
+
+def test_filler_invalid_min_interval_raises(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+    monkeypatch.setenv("FILLER_MIN_INTERVAL", "abc")
+    with pytest.raises(ValueError, match="FILLER_MIN_INTERVAL"):
+        load_settings()
+
+
+def test_filler_invalid_max_per_turn_raises(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+    monkeypatch.setenv("FILLER_MAX_PER_TURN", "abc")
+    with pytest.raises(ValueError, match="FILLER_MAX_PER_TURN"):
+        load_settings()
+
+
+def test_filler_enabled_requires_generic_phrases(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+    monkeypatch.setenv("FILLER_ENABLED", "true")
+    monkeypatch.setenv("FILLER_GENERIC_PHRASES", " ; ")
+    with pytest.raises(ValueError, match="FILLER_GENERIC_PHRASES"):
+        load_settings()
+
+
+def test_filler_tool_phrases_malformed_entry_raises(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+    monkeypatch.setenv("FILLER_TOOL_PHRASES", "semIgual")
+    with pytest.raises(ValueError, match="FILLER_TOOL_PHRASES"):
+        load_settings()

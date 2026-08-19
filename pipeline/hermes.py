@@ -9,7 +9,9 @@ text deltas into Pipecat LLM frames.
 Conversation history lives exclusively in the Hermes session
 (``X-Hermes-Session-Id``) — Pipecat only forwards the new user message on each
 turn (spec §8). Tool progress events are logged as observability signals and
-are never sent to the TTS (spec §15).
+are never sent verbatim to the TTS (spec §15); when a ``FillerController`` is
+attached, curated pt-BR fillers are spoken instead (``TTSSpeakFrame`` with
+``append_to_context=False``), so long tool executions are not pure silence.
 
 Validated against Hermes Agent v0.20.1 (``gateway/platforms/api_server.py``):
 - SSE frame format: ``event: <name>\\ndata: <json>\\n\\n``
@@ -22,9 +24,11 @@ Validated against Hermes Agent v0.20.1 (``gateway/platforms/api_server.py``):
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from collections.abc import AsyncIterable, AsyncIterator, Iterable
+from contextlib import suppress
 from dataclasses import dataclass
 
 import httpx
@@ -34,12 +38,14 @@ from pipecat.frames.frames import (
     LLMContextFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
+    TTSSpeakFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import LLMService
 from pipecat.services.settings import LLMSettings
 
+from pipeline.fillers import FillerController
 from utils.logging import log_metric
 
 HERMES_TOOL_PROGRESS_EVENT = "hermes.tool.progress"
@@ -197,7 +203,8 @@ class HermesLLMService(LLMService):
 
     Only the new user message is forwarded per turn; the conversation history
     is owned by the Hermes session. Tool progress events are logged and
-    filtered out before they could reach the TTS.
+    filtered out before they could reach the TTS verbatim; with a
+    ``FillerController`` attached, curated fillers are spoken instead.
     """
 
     def __init__(
@@ -209,6 +216,7 @@ class HermesLLMService(LLMService):
         session_manager: HermesSessionManager | None = None,
         settings: LLMSettings | None = None,
         connect_timeout_secs: float = 10.0,
+        filler: FillerController | None = None,
         **kwargs,
     ):
         settings = settings or LLMSettings(
@@ -232,6 +240,8 @@ class HermesLLMService(LLMService):
         self._model = model
         self._session_manager = session_manager
         self._connect_timeout_secs = connect_timeout_secs
+        self._filler = filler
+        self._filler_task: asyncio.Task | None = None
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         """Mirror ``BaseOpenAILLMService.process_frame``.
@@ -305,15 +315,24 @@ class HermesLLMService(LLMService):
                             response.headers.get("X-Hermes-Session-Id")
                         )
 
+                    if self._filler:
+                        self._filler.on_turn_start()
+                        self._start_filler_watchdog()
+
                     async for chunk in self._stream_chunks(response):
+                        if self._filler:
+                            self._filler.note_activity()
                         if chunk.tool_progress is not None:
                             self._log_tool_activity(chunk.tool_progress)
+                            await self._maybe_speak_tool_filler(chunk.tool_progress)
                             continue
                         if chunk.done:
                             logger.info(
                                 f"Hermes response completed "
                                 f"(finish_reason={chunk.finish_reason})"
                             )
+                            if self._filler:
+                                self._filler.on_turn_end()
                             break
                         if chunk.text_delta:
                             if not ttfb_recorded:
@@ -329,6 +348,9 @@ class HermesLLMService(LLMService):
                                 logger.info("Hermes response started")
                             await self._push_llm_text(chunk.text_delta)
         finally:
+            if self._filler:
+                await self._cancel_filler_watchdog()
+                self._filler.on_turn_end()
             if not ttfb_recorded:
                 await self.stop_ttfb_metrics()
             log_metric(
@@ -347,6 +369,76 @@ class HermesLLMService(LLMService):
             if parsed.text_delta is None and not parsed.done and parsed.tool_progress is None:
                 continue  # empty / unparseable chunk
             yield parsed
+
+    # -- Fillers (§15) -------------------------------------------------------
+
+    def _start_filler_watchdog(self) -> None:
+        """Start the silence watchdog (no-op without an enabled controller)."""
+        if not self._filler or not self._filler.is_enabled():
+            return
+        self._filler_task = self.create_task(
+            self._filler_watchdog(), name="filler-watchdog"
+        )
+
+    async def _filler_watchdog(self) -> None:
+        """Speak continuation fillers when the stream stays silent too long.
+
+        An independent task: it never touches the httpx stream (cancelling
+        the pending read would abort the turn — the read timeout is ``None``
+        by design). Deadline arithmetic lives in the controller; this loop
+        only sleeps and pushes.
+        """
+        try:
+            while True:
+                delay = self._filler.seconds_until_silence_filler()
+                if delay is None:
+                    return
+                if delay > 0:
+                    await asyncio.sleep(delay)
+                phrase = self._filler.pick_silence_filler()
+                if phrase is None:
+                    return
+                await self._push_speak_frame(phrase)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 — a filler bug must never kill the turn
+            logger.exception("Filler watchdog failed; fillers disabled for this turn")
+
+    async def _cancel_filler_watchdog(self) -> None:
+        """Cancel the watchdog task; never raises (barge-in runs this in finally)."""
+        task, self._filler_task = self._filler_task, None
+        if task is None:
+            return
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+    async def _maybe_speak_tool_filler(self, payload: dict) -> None:
+        """Speak a curated filler for a tool that started running (spec §15).
+
+        Only ``status == "running"`` triggers speech; the raw payload
+        (``label``/``delta``) is never spoken — the tool *name* only selects
+        a phrase pool, and every spoken string is a curated phrase.
+        """
+        if not self._filler:
+            return
+        if payload.get("status") != "running":
+            return
+        tool_name = str(payload.get("tool_name") or payload.get("tool") or "unknown")
+        tool_call_id = str(payload.get("toolCallId") or "")
+        phrase = self._filler.pick_tool_filler(tool_call_id, tool_name)
+        if phrase:
+            await self._push_speak_frame(phrase)
+
+    async def _push_speak_frame(self, phrase: str) -> None:
+        """Speak a phrase immediately, without touching the LLM text flow.
+
+        ``TTSSpeakFrame`` bypasses the sentence aggregator (no mid-sentence
+        merge into whatever Hermes left pending) and ``append_to_context=False``
+        keeps the filler out of the conversation context (§15).
+        """
+        logger.debug(f"Filler: {phrase!r}")
+        await self.push_frame(TTSSpeakFrame(text=phrase, append_to_context=False))
 
     async def _handle_http_error(self, response: httpx.Response) -> None:
         body = (await response.aread()).decode("utf-8", errors="replace")

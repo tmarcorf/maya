@@ -32,6 +32,7 @@ from pipecat.transcriptions.language import Language
 from pipecat.workers.runner import WorkerRunner
 
 from config.settings import DEFAULT_WAKE_WORD_TIMEOUT, Settings
+from pipeline.fillers import FillerController
 from pipeline.hermes import HermesLLMService, HermesSessionManager
 
 # Kokoro's native sample rate — avoids a resampling step in the TTS service.
@@ -190,11 +191,15 @@ def build_services(
     if session_manager is None:
         session_manager = HermesSessionManager(settings.hermes_app_session_id)
     if llm is None:
+        filler = (
+            FillerController.from_settings(settings) if settings.filler_enabled else None
+        )
         llm = HermesLLMService(
             base_url=settings.hermes_base_url,
             api_key=settings.hermes_api_key,
             model=settings.hermes_model,
             session_manager=session_manager,
+            filler=filler,
         )
     if tts is None:
         # Sentence-level aggregation is built into TTSService (default

@@ -33,7 +33,7 @@ A conversa é mantida **exclusivamente pelo Hermes**: a primeira requisição n�
 
 ### Eventos de ferramenta
 
-O Hermes emite `event: hermes.tool.progress` durante execuções de ferramenta. Polaris **registra esses eventos no log** (observabilidade) e **nunca** os envia ao TTS — você ouve apenas a resposta final do agente.
+O Hermes emite `event: hermes.tool.progress` durante execuções de ferramenta. Polaris **registra esses eventos no log** (observabilidade) e **nunca** fala o payload bruto — mas, para tarefas longas não virarem silêncio, fala **frases curadas em pt-BR** ("Hmm, deixa eu ver", "vou mexer no terminal", "só mais um instante") controladas pelos knobs `FILLER_*` do `.env` (ligadas por padrão; desligue com `FILLER_ENABLED=false`).
 
 ### Interrupção (barge-in)
 
@@ -169,7 +169,7 @@ Exemplo de conversa:
 uv run pytest -q
 ```
 
-A suíte cobre: configuração, criação do pipeline, parsing SSE, conversão de chunks em frames, `[DONE]`, erros HTTP, sessão e interrupção/cancelamento — tudo com um Hermes fake (respx), sem rede e sem modelos reais.
+A suíte cobre: configuração, criação do pipeline, parsing SSE, conversão de chunks em frames, `[DONE]`, erros HTTP, sessão, interrupção/cancelamento e fillers de progresso (seleção de frases, watchdog de silêncio, cancelamento no barge-in) — tudo com um Hermes fake (respx), sem rede e sem modelos reais.
 
 ## Troubleshooting
 

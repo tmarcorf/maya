@@ -37,6 +37,22 @@ DEFAULT_WAKE_WORD_ENABLED = False
 DEFAULT_WAKE_WORD_TIMEOUT = 10.0
 # Semicolon-separated (commas appear inside the phrases themselves).
 DEFAULT_WAKE_WORD_PHRASES = "E aí, Polaris;Ei, Polaris;Polaris, tá aí?"
+DEFAULT_FILLER_ENABLED = True
+DEFAULT_FILLER_SILENCE_TIMEOUT = 7.0
+DEFAULT_FILLER_MIN_INTERVAL = 4.0
+DEFAULT_FILLER_MAX_PER_TURN = 3
+# Semicolon-separated, like WAKE_WORD_PHRASES.
+DEFAULT_FILLER_GENERIC_PHRASES = (
+    "Hmm, deixa eu ver;Blz, vou olhar;Só um instante;Vou verificar isso"
+)
+DEFAULT_FILLER_SILENCE_PHRASES = "só mais um instante;ainda estou nisso;já já te falo"
+# tool=phrase pairs separated by ';' (unknown tools fall back to the generic pool).
+DEFAULT_FILLER_TOOL_PHRASES = (
+    "terminal=vou mexer no terminal;bash=vou mexer no terminal;"
+    "browser=vou abrir o navegador;notion=vou olhar no Notion;"
+    "memory=vou buscar na memória;skill=vou usar uma skill;"
+    "subagent=vou chamar um especialista;file=vou ler um arquivo"
+)
 DEFAULT_LOG_LEVEL = "INFO"
 
 
@@ -83,6 +99,14 @@ class Settings:
     wake_word_enabled: bool = False
     wake_word_phrases: list[str] = field(default_factory=list)
     wake_word_timeout: float = DEFAULT_WAKE_WORD_TIMEOUT
+    # Tool-progress / silence fillers (pt-BR, spoken via TTSSpeakFrame, §15).
+    filler_enabled: bool = DEFAULT_FILLER_ENABLED
+    filler_silence_timeout: float = DEFAULT_FILLER_SILENCE_TIMEOUT
+    filler_min_interval: float = DEFAULT_FILLER_MIN_INTERVAL
+    filler_max_per_turn: int = DEFAULT_FILLER_MAX_PER_TURN
+    filler_generic_phrases: list[str] = field(default_factory=list)
+    filler_silence_phrases: list[str] = field(default_factory=list)
+    filler_tool_phrases: dict[str, str] = field(default_factory=dict)
 
 
 def _int_or_none(raw: str | None) -> int | None:
@@ -210,6 +234,61 @@ def load_settings() -> Settings:
     except ValueError:
         raise ValueError("WAKE_WORD_TIMEOUT must be a number (seconds).") from None
 
+    filler_enabled = (
+        os.getenv("FILLER_ENABLED", str(DEFAULT_FILLER_ENABLED)).strip().lower()
+        in ("1", "true", "yes", "on")
+    )
+    filler_generic_phrases = [
+        phrase.strip()
+        for phrase in os.getenv(
+            "FILLER_GENERIC_PHRASES", DEFAULT_FILLER_GENERIC_PHRASES
+        ).split(";")
+        if phrase.strip()
+    ]
+    filler_silence_phrases = [
+        phrase.strip()
+        for phrase in os.getenv(
+            "FILLER_SILENCE_PHRASES", DEFAULT_FILLER_SILENCE_PHRASES
+        ).split(";")
+        if phrase.strip()
+    ]
+    filler_tool_phrases: dict[str, str] = {}
+    for entry in os.getenv("FILLER_TOOL_PHRASES", DEFAULT_FILLER_TOOL_PHRASES).split(";"):
+        entry = entry.strip()
+        if not entry:
+            continue
+        tool, sep, phrase = entry.partition("=")
+        tool, phrase = tool.strip().lower(), phrase.strip()
+        if not sep or not tool or not phrase:
+            raise ValueError(
+                f"FILLER_TOOL_PHRASES entry {entry!r} must be 'tool=phrase'."
+            )
+        filler_tool_phrases[tool] = phrase
+    if filler_enabled and not filler_generic_phrases:
+        raise ValueError(
+            "FILLER_GENERIC_PHRASES is empty. It is required when "
+            "FILLER_ENABLED=true (semicolon-separated list, e.g. "
+            "'Hmm, deixa eu ver;Blz, vou olhar')."
+        )
+    try:
+        filler_silence_timeout = float(
+            os.getenv("FILLER_SILENCE_TIMEOUT", str(DEFAULT_FILLER_SILENCE_TIMEOUT))
+        )
+    except ValueError:
+        raise ValueError("FILLER_SILENCE_TIMEOUT must be a number (seconds).") from None
+    try:
+        filler_min_interval = float(
+            os.getenv("FILLER_MIN_INTERVAL", str(DEFAULT_FILLER_MIN_INTERVAL))
+        )
+    except ValueError:
+        raise ValueError("FILLER_MIN_INTERVAL must be a number (seconds).") from None
+    try:
+        filler_max_per_turn = int(
+            os.getenv("FILLER_MAX_PER_TURN", str(DEFAULT_FILLER_MAX_PER_TURN))
+        )
+    except ValueError:
+        raise ValueError("FILLER_MAX_PER_TURN must be an integer.") from None
+
     # Stable app session id, per spec §8: "voice-session-<uuid>".
     app_session_id = os.getenv("HERMES_SESSION_ID", "").strip()
     if not app_session_id:
@@ -243,6 +322,13 @@ def load_settings() -> Settings:
         wake_word_enabled=wake_word_enabled,
         wake_word_phrases=wake_word_phrases,
         wake_word_timeout=wake_word_timeout,
+        filler_enabled=filler_enabled,
+        filler_silence_timeout=filler_silence_timeout,
+        filler_min_interval=filler_min_interval,
+        filler_max_per_turn=filler_max_per_turn,
+        filler_generic_phrases=filler_generic_phrases,
+        filler_silence_phrases=filler_silence_phrases,
+        filler_tool_phrases=filler_tool_phrases,
         log_level=os.getenv("LOG_LEVEL", DEFAULT_LOG_LEVEL),
         audio_in_device=_int_or_none(os.getenv("AUDIO_IN_DEVICE")),
         audio_out_device=_int_or_none(os.getenv("AUDIO_OUT_DEVICE")),

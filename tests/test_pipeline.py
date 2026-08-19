@@ -167,6 +167,30 @@ def test_build_pipeline_no_wake_word_keeps_defaults():
     assert user_aggregator._params.user_turn_strategies is None
 
 
+def test_build_services_wires_filler_controller():
+    """FILLER_ENABLED attaches a FillerController to the Hermes bridge (§15)."""
+    transport = _FakeTransport()
+
+    _, _, llm, _, _, _ = build_services(
+        make_settings(filler_enabled=True),
+        transport=transport,
+        stt=FrameProcessor(),
+        tts=FrameProcessor(),
+        context=LLMContext(),
+    )
+    assert llm._filler is not None
+    assert llm._filler.is_enabled()
+
+    _, _, llm, _, _, _ = build_services(
+        make_settings(filler_enabled=False),
+        transport=transport,
+        stt=FrameProcessor(),
+        tts=FrameProcessor(),
+        context=LLMContext(),
+    )
+    assert llm._filler is None
+
+
 def test_build_services_picks_elevenlabs_tts():
     """TTS_PROVIDER=elevenlabs selects the ElevenLabs service.
 
