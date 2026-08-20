@@ -1,0 +1,190 @@
+@import "tailwindcss";
+
+/*
+ * Design system "FBC panel" — Polaris companion.
+ *
+ * Identidade: instrumento de controle do Federal Bureau of Control —
+ * concreto escuro, hairlines, etiquetas monoespaçadas, doses mínimas do
+ * vermelho FBC. O orb 3D é o herói; todo o resto fica quieto.
+ * Fontes de sistema apenas (o app roda offline).
+ */
+
+@theme {
+  --color-ink: #101113; /* fundo principal — concreto à noite */
+  --color-panel: #17181b; /* painéis/elevação */
+  --color-line: #2a2c31; /* hairlines */
+  --color-text: #d8d9dd;
+  --color-dim: #8a8d94;
+  --color-fbc: #e0192f; /* vermelho Control — só o essencial */
+  /* Cores de estado — espelham STATE_META (single source no TS; os tokens
+     CSS cobrem os textos do painel, o orb usa os hex via uniforms). */
+  --color-state-idle: #a89ac0;
+  --color-state-listening: #8fc2d4;
+  --color-state-user: #d19a9a;
+  --color-state-thinking: #b09ce0;
+  --color-state-speaking: #e89a9e;
+  --font-sans:
+    system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", "Noto Sans Mono",
+    monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-ink);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden; /* o chat interno rola; a janela não */
+}
+
+/* Etiqueta de dossier: monoespaçada, maiúscula, espaçada. */
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  line-height: 1;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+/* Scrollbar fina para o chat. */
+.chat-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line) transparent;
+}
+.chat-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.chat-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 3px;
+}
+
+/* Foco visível para navegação por teclado. */
+:focus-visible {
+  outline: 1px solid var(--color-text);
+  outline-offset: 2px;
+}
+
+/* Caret do streaming da Polaris. */
+.stream-caret {
+  display: inline-block;
+  width: 0.5ch;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--color-state-listening);
+  animation: stream-blink 1s steps(2, start) infinite;
+}
+@keyframes stream-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+/* Tema highlight.js compacto (rehype-highlight), escuro e sóbrio. */
+.hljs {
+  display: block;
+  overflow-x: auto;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-line);
+  background: var(--color-panel);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+.hljs-comment,
+.hljs-quote {
+  color: #6b6e76;
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-type {
+  color: #a18bf0;
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-attribute,
+.hljs-template-tag {
+  color: #7ade97;
+}
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-meta {
+  color: #e8b15e;
+}
+.hljs-title,
+.hljs-section,
+.hljs-name,
+.hljs-function {
+  color: #63d4e0;
+}
+.hljs-built_in,
+.hljs-variable,
+.hljs-params,
+.hljs-template-variable {
+  color: #d8d9dd;
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 700;
+}
+
+/* Blocos de código e tabelas GFM dentro do markdown. */
+.markdown-body pre {
+  margin: 0.5rem 0;
+  max-width: 100%;
+}
+.markdown-body pre code {
+  border: none;
+  background: none;
+  padding: 0;
+  color: inherit;
+}
+.markdown-body p {
+  margin: 0.25rem 0;
+}
+.markdown-body ul,
+.markdown-body ol {
+  margin: 0.25rem 0;
+  padding-left: 1.25rem;
+  list-style: revert;
+}
+.markdown-body li {
+  margin: 0.125rem 0;
+}
+.markdown-body table {
+  margin: 0.5rem 0;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid var(--color-line);
+  padding: 0.25rem 0.5rem;
+}
+.markdown-body blockquote {
+  margin: 0.25rem 0;
+  border-left: 2px solid var(--color-line);
+  padding-left: 0.75rem;
+  color: var(--color-dim);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

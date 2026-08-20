@@ -26,13 +26,17 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
 )
+from pipecat.processors.frame_processor import FrameProcessor
 from pipecat.services.kokoro.tts import KokoroTTSService
 from pipecat.services.whisper.stt import WhisperSTTService
 from pipecat.transcriptions.language import Language
 from pipecat.workers.runner import WorkerRunner
 
 from config.settings import DEFAULT_WAKE_WORD_TIMEOUT, Settings
+from pipeline.bridge import BridgeServer, VoiceBridge
 from pipeline.hermes import HermesLLMService, HermesSessionManager
+from pipeline.wake_controller import WakeWordController
+from pipeline.wake_strategy import ToggleableWakePhraseStrategy
 
 # Kokoro's native sample rate — avoids a resampling step in the TTS service.
 VOICE_AGENT_SAMPLE_RATE = 24000
@@ -220,6 +224,8 @@ def build_pipeline(
     wake_word_enabled: bool = False,
     wake_phrases: list[str] | None = None,
     wake_timeout: float = DEFAULT_WAKE_WORD_TIMEOUT,
+    wake_controller: WakeWordController | None = None,
+    observer: FrameProcessor | None = None,
 ):
     """Assemble the Pipeline with the spec §13 ordering.
 
@@ -227,29 +233,43 @@ def build_pipeline(
     barge-in detection (§4, §9). Tests can pass ``vad_analyzer=None`` to
     skip loading the Silero model.
 
-    With ``wake_word_enabled``, a ``WakePhraseUserTurnStartStrategy`` is
-    placed first in the turn-start strategies: while asleep the LLM never
-    runs, and only a transcription matching one of ``wake_phrases`` starts
-    a user turn. After ``wake_timeout`` seconds of inactivity the agent
-    goes back to sleep.
+    With a ``wake_controller``, a ``ToggleableWakePhraseStrategy`` is placed
+    first in the turn-start strategies: while asleep the LLM never runs, and
+    only a transcription matching one of ``wake_phrases`` starts a user
+    turn. After ``wake_timeout`` seconds of inactivity the agent goes back
+    to sleep. The strategy passes everything through while the controller
+    is disabled, so the desktop app can toggle the wake word at runtime.
+    With ``wake_word_enabled`` but no controller (tests/backward compat),
+    the plain pipecat strategy is used instead.
+
+    ``observer`` (the desktop bridge) is appended at the end of the chain,
+    where it sees every frame flowing through the pipeline exactly once.
     """
     if vad_analyzer is _UNSET:
         vad_analyzer = SileroVADAnalyzer()
 
     user_params = LLMUserAggregatorParams(vad_analyzer=vad_analyzer)
-    if wake_word_enabled:
-        from pipecat.turns.user_start.wake_phrase_user_turn_start_strategy import (
-            WakePhraseUserTurnStartStrategy,
-        )
+    if wake_controller is not None or wake_word_enabled:
         from pipecat.turns.user_turn_strategies import (
             UserTurnStrategies,
             default_user_turn_start_strategies,
         )
 
-        strategy = WakePhraseUserTurnStartStrategy(
-            phrases=_expand_wake_phrases(wake_phrases or []),
-            timeout=wake_timeout,
-        )
+        if wake_controller is not None:
+            strategy = ToggleableWakePhraseStrategy(
+                controller=wake_controller,
+                phrases=_expand_wake_phrases(wake_phrases or []),
+                timeout=wake_timeout,
+            )
+        else:
+            from pipecat.turns.user_start.wake_phrase_user_turn_start_strategy import (
+                WakePhraseUserTurnStartStrategy,
+            )
+
+            strategy = WakePhraseUserTurnStartStrategy(
+                phrases=_expand_wake_phrases(wake_phrases or []),
+                timeout=wake_timeout,
+            )
 
         @strategy.event_handler("on_wake_phrase_detected")
         async def _on_wake_phrase_detected(_strategy, phrase):
@@ -270,17 +290,18 @@ def build_pipeline(
         context,
         user_params=user_params,
     )
-    return Pipeline(
-        [
-            transport.input(),
-            stt,
-            user_aggregator,
-            llm,
-            tts,
-            transport.output(),
-            assistant_aggregator,
-        ]
-    )
+    processors = [
+        transport.input(),
+        stt,
+        user_aggregator,
+        llm,
+        tts,
+        transport.output(),
+        assistant_aggregator,
+    ]
+    if observer is not None:
+        processors.append(observer)
+    return Pipeline(processors)
 
 
 async def run_voice_agent(
@@ -305,6 +326,11 @@ async def run_voice_agent(
             session_manager=session_manager,
         )
 
+    wake_controller = WakeWordController(enabled=settings.wake_word_enabled)
+    observer = VoiceBridge(
+        wake_controller=wake_controller,
+        session_manager=session_manager,
+    )
     pipeline = build_pipeline(
         transport,
         stt,
@@ -314,6 +340,8 @@ async def run_voice_agent(
         wake_word_enabled=settings.wake_word_enabled,
         wake_phrases=settings.wake_word_phrases,
         wake_timeout=settings.wake_word_timeout,
+        wake_controller=wake_controller,
+        observer=observer,
     )
 
     worker = PipelineWorker(
@@ -324,6 +352,15 @@ async def run_voice_agent(
         conversation_id=settings.hermes_app_session_id,
     )
 
+    bridge_server = BridgeServer(
+        port=settings.bridge_ws_port,
+        wake_controller=wake_controller,
+        session_manager=session_manager,
+        snapshot=observer.snapshot,
+    )
+    observer.set_publisher(bridge_server.publish)
+    # The wake controller listener is wired inside bridge_server.start().
+
     runner = WorkerRunner()
     await runner.add_workers(worker)
     if not settings.wake_word_enabled:
@@ -332,8 +369,12 @@ async def run_voice_agent(
         # when the wake strategy triggers user turn start.
         await worker.queue_frames([LLMRunFrame()])
 
-    logger.info(
-        f"Polaris is listening (app session {settings.hermes_app_session_id}, "
-        f"Hermes at {settings.hermes_base_url}). Press Ctrl+C to stop."
-    )
-    await runner.run()
+    await bridge_server.start()
+    try:
+        logger.info(
+            f"Polaris is listening (app session {settings.hermes_app_session_id}, "
+            f"Hermes at {settings.hermes_base_url}). Press Ctrl+C to stop."
+        )
+        await runner.run()
+    finally:
+        await bridge_server.stop()

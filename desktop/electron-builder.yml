@@ -1,0 +1,30 @@
+appId: com.polaris.desktop
+productName: Polaris
+copyright: "© 2026 tmarcorf"
+
+directories:
+  output: release
+  buildResources: resources
+
+# Só o necessário para o app rodar: renderer (vite) + main/preload (tsc).
+files:
+  - dist/**
+  - dist-electron/**
+  - resources/tray.png
+  - package.json
+  - "!**/*.map"
+
+asar: true
+npmRebuild: false # sem deps nativas (ws é JS puro)
+
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Utility
+  icon: resources/icon.png
+  maintainer: tmarcorf
+  synopsis: Companion desktop do agente de voz Polaris
+  description: >
+    Orb 3D reativo aos estados de voz, chat espelhando a conversa e
+    toggle da wake word — a camada de apresentação do Polaris.

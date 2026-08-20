@@ -24,6 +24,8 @@ from pipeline.voice_pipeline import (
     build_pipeline,
     build_services,
 )
+from pipeline.wake_controller import WakeWordController
+from pipeline.wake_strategy import ToggleableWakePhraseStrategy
 from tests.conftest import make_settings
 
 
@@ -165,6 +167,41 @@ def test_build_pipeline_no_wake_word_keeps_defaults():
     user_aggregator = pipeline.processors[3]
     # None means the pipecat defaults are used (current behavior, untouched).
     assert user_aggregator._params.user_turn_strategies is None
+
+
+def test_build_pipeline_wake_controller_always_adds_toggleable_strategy():
+    """The toggleable strategy is first even when the wake word starts OFF —
+    the desktop app can enable it at runtime."""
+    from pipeline.bridge import VoiceBridge
+
+    transport = _FakeTransport()
+    stt, llm, tts = FrameProcessor(), FrameProcessor(), FrameProcessor()
+    context = LLMContext()
+    controller = WakeWordController(enabled=False)
+    observer = VoiceBridge(wake_controller=controller)
+
+    pipeline = build_pipeline(
+        transport,
+        stt,
+        llm,
+        tts,
+        context,
+        vad_analyzer=None,
+        wake_word_enabled=False,
+        wake_phrases=["E aí, Polaris"],
+        wake_controller=controller,
+        observer=observer,
+    )
+
+    user_aggregator = pipeline.processors[3]
+    start_strategies = user_aggregator._params.user_turn_strategies.start
+    assert isinstance(start_strategies[0], ToggleableWakePhraseStrategy)
+    assert len(start_strategies) == 3  # wake + the two pipecat defaults
+
+    # The observer sits at the end of the chain, after the aggregators.
+    processors = pipeline.processors
+    assert len(processors) == 10
+    assert processors[8] is observer
 
 
 def test_build_services_picks_elevenlabs_tts():

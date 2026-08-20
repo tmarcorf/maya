@@ -109,6 +109,16 @@ ELEVENLABS_API_KEY=...   # chave da API
 ELEVENLABS_VOICE_ID=...  # id da voz (premade ou clonada)
 ```
 
+## Desktop companion (Electron)
+
+Além do terminal, o Polaris expõe uma **bridge WebSocket local** (`ws://127.0.0.1:8686`, configurável via `BRIDGE_WS_PORT`) que espelha o estado da conversa para o app desktop em `desktop/` (orb 3D, chat, toggle da wake word). Ela publica eventos (`hello`, `state`, `user_transcript`, `agent_text`/`agent_text_end`, `tool_activity`, `interruption`, `audio_level`, `wake_state`) e aceita comandos com ack: `get_state`, `set_wake_word_enabled`, `ping`. Um client por vez.
+
+Com `./polaris.sh` rodando, você pode inspecionar a bridge com:
+
+```bash
+websocat ws://127.0.0.1:8686
+```
+
 ## Voz Qwen3-TTS (local, GPU)
 
 Roda o **Qwen3-TTS 0.6B** (Apache-2.0) localmente na sua GPU NVIDIA — sem custo por uso, com qualidade superior ao Kokoro, porém **mais lento** (em GPUs de consumo cada sentença leva alguns segundos de síntese; a primeira fala também paga o carregamento do modelo no startup). Para latência mínima, mantenha o ElevenLabs.

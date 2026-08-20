@@ -22,6 +22,8 @@ from pipecat.frames.frames import (
 )
 from pipecat.tests.utils import run_test
 
+from pipeline.frames import ToolActivityFrame
+
 
 @respx.mock
 async def test_chunks_become_llm_text_frames():
@@ -72,6 +74,7 @@ async def test_tool_progress_is_filtered_from_speech():
             LLMServiceMetadataFrame,
             LLMFullResponseStartFrame,
             LLMTextFrame,
+            ToolActivityFrame,
             LLMTextFrame,
             LLMFullResponseEndFrame,
         ],
@@ -79,8 +82,14 @@ async def test_tool_progress_is_filtered_from_speech():
     )
 
     texts = [frame.text for frame in down if isinstance(frame, LLMTextFrame)]
-    # The tool progress payload never became an LLMTextFrame (§15).
+    # The tool progress payload never became an LLMTextFrame (§15)…
     assert "".join(texts) == "Vou verificar"
+    # …but it did become a control frame for UI mirroring (never spoken).
+    tool_frames = [frame for frame in down if isinstance(frame, ToolActivityFrame)]
+    assert len(tool_frames) == 1
+    assert tool_frames[0].tool == "bash"  # normalized from tool_name fallback
+    assert tool_frames[0].label == "ls"  # normalized from delta fallback
+    assert tool_frames[0].status == ""
 
 
 @respx.mock

@@ -17,3 +17,9 @@ dist/
 
 # Logs
 *.log
+
+# Desktop app (Electron)
+desktop/node_modules/
+desktop/dist/
+desktop/dist-electron/
+desktop/release/

@@ -270,3 +270,28 @@ def test_wake_word_enabled_requires_phrases(monkeypatch):
     monkeypatch.setenv("WAKE_WORD_PHRASES", " ; ")
     with pytest.raises(ValueError, match="WAKE_WORD_PHRASES"):
         load_settings()
+
+
+def test_bridge_ws_port_default_and_override(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+    monkeypatch.delenv("BRIDGE_WS_PORT", raising=False)
+    assert load_settings().bridge_ws_port == 8686
+
+    monkeypatch.setenv("BRIDGE_WS_PORT", "9001")
+    assert load_settings().bridge_ws_port == 9001
+
+
+def test_bridge_ws_port_invalid_raises(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "secret-123")
+
+    monkeypatch.setenv("BRIDGE_WS_PORT", "abc")
+    with pytest.raises(ValueError, match="BRIDGE_WS_PORT"):
+        load_settings()
+
+    monkeypatch.setenv("BRIDGE_WS_PORT", "0")
+    with pytest.raises(ValueError, match="BRIDGE_WS_PORT"):
+        load_settings()
+
+    monkeypatch.setenv("BRIDGE_WS_PORT", "70000")
+    with pytest.raises(ValueError, match="BRIDGE_WS_PORT"):
+        load_settings()

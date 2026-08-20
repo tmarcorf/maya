@@ -37,6 +37,8 @@ DEFAULT_WAKE_WORD_ENABLED = False
 DEFAULT_WAKE_WORD_TIMEOUT = 10.0
 # Semicolon-separated (commas appear inside the phrases themselves).
 DEFAULT_WAKE_WORD_PHRASES = "E aí, Polaris;Ei, Polaris;Polaris, tá aí?"
+# Local WebSocket the desktop app (Electron) connects to for live events.
+DEFAULT_BRIDGE_WS_PORT = 8686
 DEFAULT_LOG_LEVEL = "INFO"
 
 
@@ -83,6 +85,8 @@ class Settings:
     wake_word_enabled: bool = False
     wake_word_phrases: list[str] = field(default_factory=list)
     wake_word_timeout: float = DEFAULT_WAKE_WORD_TIMEOUT
+    # Desktop bridge: local WS port for live events + control commands.
+    bridge_ws_port: int = DEFAULT_BRIDGE_WS_PORT
 
 
 def _int_or_none(raw: str | None) -> int | None:
@@ -210,6 +214,16 @@ def load_settings() -> Settings:
     except ValueError:
         raise ValueError("WAKE_WORD_TIMEOUT must be a number (seconds).") from None
 
+    bridge_ws_port_raw = os.getenv("BRIDGE_WS_PORT", "").strip()
+    bridge_ws_port = DEFAULT_BRIDGE_WS_PORT
+    if bridge_ws_port_raw:
+        try:
+            bridge_ws_port = int(bridge_ws_port_raw)
+        except ValueError:
+            raise ValueError("BRIDGE_WS_PORT must be an integer.") from None
+        if not 0 < bridge_ws_port < 65536:
+            raise ValueError("BRIDGE_WS_PORT must be between 1 and 65535.")
+
     # Stable app session id, per spec §8: "voice-session-<uuid>".
     app_session_id = os.getenv("HERMES_SESSION_ID", "").strip()
     if not app_session_id:
@@ -243,6 +257,7 @@ def load_settings() -> Settings:
         wake_word_enabled=wake_word_enabled,
         wake_word_phrases=wake_word_phrases,
         wake_word_timeout=wake_word_timeout,
+        bridge_ws_port=bridge_ws_port,
         log_level=os.getenv("LOG_LEVEL", DEFAULT_LOG_LEVEL),
         audio_in_device=_int_or_none(os.getenv("AUDIO_IN_DEVICE")),
         audio_out_device=_int_or_none(os.getenv("AUDIO_OUT_DEVICE")),

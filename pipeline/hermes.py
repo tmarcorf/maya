@@ -8,8 +8,9 @@ text deltas into Pipecat LLM frames.
 
 Conversation history lives exclusively in the Hermes session
 (``X-Hermes-Session-Id``) — Pipecat only forwards the new user message on each
-turn (spec §8). Tool progress events are logged as observability signals and
-are never sent to the TTS (spec §15).
+turn (spec §8). Tool progress events are logged as observability signals,
+forwarded downstream as ``ToolActivityFrame`` control frames for UI mirroring,
+and are never sent to the TTS (spec §15).
 
 Validated against Hermes Agent v0.20.1 (``gateway/platforms/api_server.py``):
 - SSE frame format: ``event: <name>\\ndata: <json>\\n\\n``
@@ -40,6 +41,7 @@ from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import LLMService
 from pipecat.services.settings import LLMSettings
 
+from pipeline.frames import ToolActivityFrame
 from utils.logging import log_metric
 
 HERMES_TOOL_PROGRESS_EVENT = "hermes.tool.progress"
@@ -307,7 +309,7 @@ class HermesLLMService(LLMService):
 
                     async for chunk in self._stream_chunks(response):
                         if chunk.tool_progress is not None:
-                            self._log_tool_activity(chunk.tool_progress)
+                            await self._push_tool_activity(chunk.tool_progress)
                             continue
                         if chunk.done:
                             logger.info(
@@ -359,12 +361,28 @@ class HermesLLMService(LLMService):
             error_msg=f"Hermes HTTP error {response.status_code}: {detail}"
         )
 
-    def _log_tool_activity(self, payload: dict) -> None:
+    async def _push_tool_activity(self, payload: dict) -> None:
+        """Log the tool event and forward it as a control frame for the UI.
+
+        The frame flows downstream (TTS and transports pass control frames
+        through untouched) so the desktop bridge can publish it.
+        """
         tool_name = payload.get("tool_name") or payload.get("tool") or "unknown"
-        status = payload.get("status", "")
-        detail = str(payload.get("delta") or payload.get("label") or "")[:120]
+        status = str(payload.get("status") or "")
+        label = str(payload.get("delta") or payload.get("label") or "")[:200]
         logger.info(
-            f"Hermes tool activity: tool={tool_name} status={status} detail={detail!r}"
+            f"Hermes tool activity: tool={tool_name} status={status} detail={label!r}"
+        )
+        await self.push_frame(
+            ToolActivityFrame(
+                tool=tool_name,
+                label=label,
+                emoji=str(payload.get("emoji") or ""),
+                tool_call_id=str(
+                    payload.get("toolCallId") or payload.get("tool_call_id") or ""
+                ),
+                status=status,
+            )
         )
 
     @staticmethod

@@ -2580,6 +2580,7 @@ dependencies = [
     { name = "pipecat-ai", extra = ["kokoro", "local", "whisper"] },
     { name = "python-dotenv" },
     { name = "qwen-tts" },
+    { name = "websockets" },
 ]
 
 [package.dev-dependencies]
@@ -2599,6 +2600,7 @@ requires-dist = [
     { name = "pipecat-ai", extras = ["kokoro", "local", "whisper", "elevenlabs"], specifier = ">=1.4.0,<2.0" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "qwen-tts", specifier = ">=0.1.1,<0.2" },
+    { name = "websockets", specifier = ">=17,<18" },
 ]
 
 [package.metadata.requires-dev]
