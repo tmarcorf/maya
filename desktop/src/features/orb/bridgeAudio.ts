@@ -18,11 +18,13 @@ import { SPECTRUM_BINS } from "./types";
 import type { AudioFrame } from "./types";
 
 /**
+ * `pulse` — Polaris falando: o pulso do orb é o áudio real do TTS, com
+ * ganho acima do modo ambiente para ler como reação à fala dela.
  * `live` — alguém está falando, use o áudio real.
  * `ambient` — Polaris pensando: não há áudio, mas o orb não pode morrer.
  * `rest` — ocioso: decai para o repouso.
  */
-export type AudioMood = "live" | "ambient" | "rest";
+export type AudioMood = "pulse" | "live" | "ambient" | "rest";
 
 /** Sem evento novo por este tempo, o áudio é considerado morto. */
 const STALE_MS = 400;
@@ -55,6 +57,10 @@ export class BridgeAudioSource {
   read(dt: number): AudioFrame {
     this.clock += dt;
 
+    // Polaris falando: o gate é o estado de voz, não a frescura do áudio —
+    // entre sentenças a bridge segura o último nível publicado (o zero
+    // arrancaria o pulso no meio da fala), então o staleness não vale aqui.
+    if (this.mood === "pulse") return this.pulse(dt);
     if (this.mood === "ambient") return this.synthesize(dt, 0.45);
     if (this.mood === "rest" || this.isStale()) return this.rest(dt);
     return this.live(dt);
@@ -64,7 +70,18 @@ export class BridgeAudioSource {
     return this.levels.ts === 0 || Date.now() - this.levels.ts > STALE_MS;
   }
 
-  private live(dt: number): AudioFrame {
+  /**
+   * Polaris falando: o mesmo drive do `live`, com ganho acima do modo
+   * ambiente — o orb lê como reação à fala dela, não como a respiração
+   * sintética do "pensando…". O nível segue a sílaba (ataque rápido do
+   * envelope) e, quando ela para, o estado de voz volta a `rest` e o pulso
+   * decai com a soltura lenta.
+   */
+  private pulse(dt: number): AudioFrame {
+    return this.live(dt, 0.90);
+  }
+
+  private live(dt: number, drive = 0.55): AudioFrame {
     const { levels } = this;
     // `level` já é o RMS do lado ativo (quem fala). Sem ele, o maior dos dois
     // lados é a melhor aproximação.
@@ -74,7 +91,7 @@ export class BridgeAudioSource {
     // material alto.
     this.peak = Math.max(rms, this.peak - dt * 0.08);
     const norm = this.sensitivity / Math.max(this.peak, 0.045);
-    const level = Math.min(1.6, rms * norm * 0.55);
+    const level = Math.min(1.6, rms * norm * drive);
 
     const hasBands = levels.bass !== undefined;
     const rawBass = hasBands ? levels.bass! : rms * 0.9;

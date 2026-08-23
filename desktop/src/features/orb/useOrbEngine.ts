@@ -15,11 +15,13 @@ import { useLevelStore } from "@/store/useLevelStore";
 import type { AudioMood, BridgeAudioSource } from "./bridgeAudio";
 
 /**
- * `thinking` não tem áudio nenhum fluindo — sem o modo ambiente o orb
- * congelaria exatamente enquanto o Hermes trabalha, que é quando o usuário
- * mais precisa de sinal de que algo está acontecendo.
+ * `speaking` é o pulso da fala da Polaris — o único estado que pula do
+ * áudio real do TTS. `thinking` não tem áudio nenhum fluindo; sem o modo
+ * ambiente o orb congelaria exatamente enquanto o Hermes trabalha, que é
+ * quando o usuário mais precisa de sinal de que algo está acontecendo.
  */
 export function voiceToMood(voice: VoiceState): AudioMood {
+  if (voice === "speaking") return "pulse";
   if (voice === "thinking") return "ambient";
   if (voice === "idle") return "rest";
   return "live";
