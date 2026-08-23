@@ -2,7 +2,8 @@
  * Mock da bridge Polaris — desenvolvimento do renderer sem backend.
  *
  * Implementa o mesmo protocolo de `pipeline/bridge.py`: handshake, estado
- * inicial e os comandos `get_state`, `set_wake_word_enabled` e `ping`. Além
+ * inicial e os comandos `get_state`, `set_wake_word_enabled`, `ping` e
+ * `send_user_message`. Além
  * disso roda uma conversa em loop com níveis de áudio a 30 Hz, para dar como
  * ver o orb reagindo e a timeline se montando sem subir Whisper/TTS.
  *
@@ -135,9 +136,9 @@ const REPLY = "São 1.284 arquivos, sem contar node_modules. A maior parte está
 
 let turn = 0;
 
-function streamAgentText() {
+function streamAgentText(reply = REPLY) {
   const turnId = `mock-turn-${++turn}`;
-  const words = REPLY.split(" ");
+  const words = reply.split(" ");
   let index = 0;
   const timer = setInterval(() => {
     if (index >= words.length) {
@@ -190,6 +191,22 @@ wss.on("connection", (socket) => {
       console.log(`[mock] wake word ${state.wake.enabled ? "ativada" : "desativada"}`);
     } else if (message.cmd === "ping") {
       send(socket, { type: "ack", id: message.id, ok: true, data: "pong" });
+    } else if (message.cmd === "send_user_message") {
+      const text = String(message.text ?? "").trim();
+      if (!text) {
+        send(socket, { type: "ack", id: message.id, ok: false, error: { code: "empty_text", message: "Mensagem vazia." } });
+        return;
+      }
+      send(socket, { type: "ack", id: message.id, ok: true });
+      broadcast({ type: "user_transcript", text });
+      console.log(`[mock] mensagem do chat: ${text}`);
+      // Resposta fake no mesmo fluxo do backend: pensando → falando → idle.
+      setVoice("thinking");
+      setTimeout(() => setVoice("speaking"), 700);
+      setTimeout(() => {
+        streamAgentText(`Recebi sua mensagem: "${text}". Aqui é a Polaris respondendo pela caixa de texto!`);
+      }, 900);
+      setTimeout(() => setVoice("idle"), 4200);
     } else {
       send(socket, { type: "ack", id: message.id, ok: false, error: { code: "unknown_command", message: `Comando desconhecido: ${message.cmd}` } });
     }

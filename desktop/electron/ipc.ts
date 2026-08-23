@@ -11,7 +11,12 @@ import type { Command } from "../src/shared/protocol";
 import type { BridgeClient } from "./bridge-client";
 import { clearHistory, loadHistory, saveHistory } from "./history-store";
 
-const KNOWN_COMMANDS = new Set(["get_state", "set_wake_word_enabled", "ping"]);
+const KNOWN_COMMANDS = new Set([
+  "get_state",
+  "set_wake_word_enabled",
+  "ping",
+  "send_user_message",
+]);
 
 function isTrustedSender(event: IpcMainInvokeEvent): boolean {
   const url = event.senderFrame?.url ?? "";

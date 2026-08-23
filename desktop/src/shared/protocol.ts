@@ -12,7 +12,7 @@
  * `audio_level` carrega, além do RMS de cada lado, a análise espectral do
  * lado ativo (campos opcionais: level/bass/mid/treble/spectrum).
  * Comandos client → server (ack é a única resposta — nunca otimista):
- *   get_state, set_wake_word_enabled, ping
+ *   get_state, set_wake_word_enabled, ping, send_user_message
  */
 
 export const BRIDGE_VERSION = 1;
@@ -148,12 +148,18 @@ export type BridgeEvent =
   | ErrorEvent
   | AckEvent;
 
-export type CommandName = "get_state" | "set_wake_word_enabled" | "ping";
+export type CommandName =
+  | "get_state"
+  | "set_wake_word_enabled"
+  | "ping"
+  | "send_user_message";
 
 export interface Command {
   id: number;
   cmd: CommandName;
   enabled?: boolean;
+  /** Texto digitado no chat — usado por `send_user_message`. */
+  text?: string;
 }
 
 /** Payload de `get_state` (e do `state` enviado junto do `hello`). */

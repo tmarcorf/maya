@@ -37,6 +37,10 @@ Protocol (JSON lines, one object per WebSocket frame; ``ts`` = epoch ms):
       {id, cmd:"get_state"} → ack {voice, wake, session}
       {id, cmd:"set_wake_word_enabled", enabled} → ack {enabled}
       {id, cmd:"ping"} → ack "pong"
+      {id, cmd:"send_user_message", text} → ack; injects the text into the
+          pipeline as a user message (LLMMessagesAppendFrame run_llm) — the
+          reply flows through TTS as usual. Bypasses the wake gate: chat
+          input is always processed.
 """
 
 from __future__ import annotations
@@ -58,6 +62,7 @@ from pipecat.frames.frames import (
     InterruptionFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
+    LLMMessagesAppendFrame,
     LLMTextFrame,
     TranscriptionFrame,
     TTSAudioRawFrame,
@@ -564,11 +569,13 @@ class BridgeServer:
         wake_controller: WakeWordController,
         session_manager: HermesSessionManager | None,
         snapshot: Callable[[], dict],
+        queue_frames: Callable[[list[Frame]], Awaitable[None]] | None = None,
     ) -> None:
         self._port = port
         self._wake_controller = wake_controller
         self._session_manager = session_manager
         self._snapshot = snapshot
+        self._queue_frames = queue_frames
         self._server: websockets.Server | None = None
         self._connection: websockets.ServerConnection | None = None
 
@@ -703,6 +710,42 @@ class BridgeServer:
             )
         elif cmd == "ping":
             await self._send_ack(connection, message.get("id"), ok=True, data="pong")
+        elif cmd == "send_user_message":
+            text = str(message.get("text") or "").strip()
+            if not text:
+                await self._send_ack(
+                    connection,
+                    message.get("id"),
+                    ok=False,
+                    error={"code": "empty_text", "message": "Mensagem vazia."},
+                )
+            elif self._queue_frames is None:
+                await self._send_ack(
+                    connection,
+                    message.get("id"),
+                    ok=False,
+                    error={
+                        "code": "not_available",
+                        "message": "Bridge sem pipeline conectado.",
+                    },
+                )
+            else:
+                # Injeta a mensagem como um turno de usuário normal: o
+                # aggregator adiciona ao contexto e roda o LLM; a resposta
+                # flui pelo TTS (fala + agent_text) como qualquer outra.
+                # O gate da palavra de ativação não se aplica a chat.
+                await self._queue_frames(
+                    [
+                        LLMMessagesAppendFrame(
+                            messages=[{"role": "user", "content": text}],
+                            run_llm=True,
+                        )
+                    ]
+                )
+                # O espelho do chat só adiciona bolha do usuário via
+                # user_transcript; publica o texto digitado no mesmo fluxo.
+                await self.publish({"type": "user_transcript", "text": text})
+                await self._send_ack(connection, message.get("id"), ok=True)
         else:
             await self._send_ack(
                 connection,

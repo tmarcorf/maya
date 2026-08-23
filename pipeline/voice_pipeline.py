@@ -380,6 +380,8 @@ async def run_voice_agent(
         wake_controller=wake_controller,
         session_manager=session_manager,
         snapshot=observer.snapshot,
+        # O comando send_user_message injeta texto no pipeline (chat).
+        queue_frames=worker.queue_frames,
     )
     observer.set_publisher(bridge_server.publish)
     transcript_observer.set_publisher(bridge_server.publish)

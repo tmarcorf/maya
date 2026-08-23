@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import numpy as np
 import pytest
 import websockets
-from pipecat.frames.frames import TTSAudioRawFrame
+from pipecat.frames.frames import LLMMessagesAppendFrame, TTSAudioRawFrame
 from pipecat.processors.frame_processor import FrameDirection
 
 from pipeline.bridge import SPECTRUM_BINS_WIRE, BridgeServer, VoiceBridge
@@ -21,6 +22,33 @@ class _SessionManager:
         return "hermes-session-1"
 
 
+def _snapshot(controller: WakeWordController) -> dict:
+    return {
+        "voice": "idle",
+        "wake": {
+            "enabled": controller.enabled,
+            "state": controller.state,
+            "phrase": controller.phrase,
+        },
+        "session": {
+            "appSessionId": "voice-session-test",
+            "hermesSessionId": "hermes-session-1",
+        },
+    }
+
+
+class _QueueRecorder:
+    """Registra as chamadas de queue_frames para inspecionar o injetado."""
+
+    def __init__(self):
+        self.calls: list[list] = []
+        self._lock = asyncio.Lock()
+
+    async def queue_frames(self, frames: list) -> None:
+        async with self._lock:
+            self.calls.append(list(frames))
+
+
 @pytest.fixture
 async def server():
     """A running BridgeServer on an OS-assigned port."""
@@ -29,26 +57,32 @@ async def server():
         port=0,
         wake_controller=controller,
         session_manager=_SessionManager(),
-        snapshot=lambda: {
-            "voice": "idle",
-            "wake": {
-                "enabled": controller.enabled,
-                "state": controller.state,
-                "phrase": controller.phrase,
-            },
-            "session": {
-                "appSessionId": "voice-session-test",
-                "hermesSessionId": "hermes-session-1",
-            },
-        },
+        snapshot=lambda: _snapshot(controller),
     )
     await bridge_server.start()
     yield bridge_server, controller
     await bridge_server.stop()
 
 
+@pytest.fixture
+async def server_with_queue():
+    """BridgeServer wired to a queue_frames recorder (chat injection)."""
+    controller = WakeWordController(enabled=True)
+    recorder = _QueueRecorder()
+    bridge_server = BridgeServer(
+        port=0,
+        wake_controller=controller,
+        session_manager=_SessionManager(),
+        snapshot=lambda: _snapshot(controller),
+        queue_frames=recorder.queue_frames,
+    )
+    await bridge_server.start()
+    yield bridge_server, controller, recorder
+    await bridge_server.stop()
+
+
 async def _connect(server) -> websockets.ClientConnection:
-    bridge_server, _controller = server
+    bridge_server = server[0]
     return await websockets.connect(f"ws://127.0.0.1:{bridge_server.port}")
 
 
@@ -149,6 +183,55 @@ async def test_ping_pongs(server):
         ack = json.loads(await ws.recv())
         assert ack["ok"] is True
         assert ack["data"] == "pong"
+
+
+async def test_send_user_message_injects_and_publishes(server_with_queue):
+    """Chat text queues an LLMMessagesAppendFrame and echoes user_transcript."""
+    _bridge_server, _controller, recorder = server_with_queue
+    async with await _connect(server_with_queue) as ws:
+        await _handshake(ws)
+
+        await ws.send(
+            json.dumps({"id": 11, "cmd": "send_user_message", "text": "que horas são?"})
+        )
+
+        # ack and user_transcript may arrive in either order — collect both.
+        messages = {m["type"]: m for m in [json.loads(await ws.recv()) for _ in range(2)]}
+        assert messages["ack"]["ok"] is True
+        assert messages["ack"]["id"] == 11
+        assert messages["user_transcript"]["text"] == "que horas são?"
+
+        assert len(recorder.calls) == 1
+        (frame,) = recorder.calls[0]
+        assert isinstance(frame, LLMMessagesAppendFrame)
+        assert frame.messages == [{"role": "user", "content": "que horas são?"}]
+        assert frame.run_llm is True
+
+
+async def test_send_user_message_rejects_empty_text(server_with_queue):
+    _bridge_server, _controller, recorder = server_with_queue
+    async with await _connect(server_with_queue) as ws:
+        await _handshake(ws)
+
+        await ws.send(json.dumps({"id": 12, "cmd": "send_user_message", "text": "   "}))
+        ack = json.loads(await ws.recv())
+        assert ack["ok"] is False
+        assert ack["id"] == 12
+        assert ack["error"]["code"] == "empty_text"
+        # Nada enfileirado nem publicado além do ack.
+        assert recorder.calls == []
+
+
+async def test_send_user_message_unavailable_without_pipeline(server):
+    """Sem queue_frames (bridge solta) o comando responde not_available."""
+    async with await _connect(server) as ws:
+        await _handshake(ws)
+
+        await ws.send(json.dumps({"id": 13, "cmd": "send_user_message", "text": "oi"}))
+        ack = json.loads(await ws.recv())
+        assert ack["ok"] is False
+        assert ack["id"] == 13
+        assert ack["error"]["code"] == "not_available"
 
 
 async def test_audio_level_reaches_the_client_with_spectrum(server):

@@ -12,6 +12,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { Composer } from "@/features/chat/Composer";
 import { MessageBubble } from "@/features/chat/MessageBubble";
 import { ToolActivityCard } from "@/features/chat/ToolActivityCard";
 import { useBridgeStore } from "@/store/useBridgeStore";
@@ -52,7 +53,7 @@ export function ChatPanel() {
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        className="chat-scroll min-h-0 flex-1 overflow-y-auto px-4 py-4"
+        className="chat-scroll min-h-0 flex-1 overflow-y-auto px-4 pt-4"
       >
         {timeline.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
@@ -82,6 +83,7 @@ export function ChatPanel() {
           </div>
         )}
       </div>
+      <Composer />
     </section>
   );
 }
