@@ -1,4 +1,3 @@
-/// <reference types="vitest/config" />
 import { fileURLToPath, URL } from "node:url";
 
 import tailwindcss from "@tailwindcss/vite";
@@ -16,8 +15,5 @@ export default defineConfig({
   },
   server: {
     port: 5174,
-  },
-  test: {
-    environment: "node",
   },
 });
