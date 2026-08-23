@@ -8,6 +8,9 @@
  * Eventos server → client (JSON lines, `ts` = epoch ms):
  *   hello, state, user_transcript, agent_text, agent_text_end,
  *   tool_activity, interruption, audio_level, wake_state, error
+ *
+ * `audio_level` carrega, além do RMS de cada lado, a análise espectral do
+ * lado ativo (campos opcionais: level/bass/mid/treble/spectrum).
  * Comandos client → server (ack é a única resposta — nunca otimista):
  *   get_state, set_wake_word_enabled, ping
  */
@@ -87,11 +90,26 @@ export interface InterruptionEvent {
   ts: number;
 }
 
+/** Número de bins do espectro no fio (o renderer reamostra para 256). */
+export const SPECTRUM_BINS_WIRE = 32;
+
 export interface AudioLevelEvent {
   type: "audio_level";
   ts: number;
   input: number;
   output: number;
+  /**
+   * Análise espectral do lado ativo (quem está falando: microfone durante
+   * `user_speaking`/`listening`, TTS durante `speaking`). Opcionais — uma
+   * bridge antiga não os envia e o orb cai no caminho degradado, sintetizando
+   * o espectro a partir do RMS.
+   */
+  level?: number;
+  bass?: number;
+  mid?: number;
+  treble?: number;
+  /** `SPECTRUM_BINS_WIRE` bins log-espaçados (~28 Hz–16 kHz), 0..255. */
+  spectrum?: number[];
 }
 
 export interface WakeStateEvent {

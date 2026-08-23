@@ -52,7 +52,7 @@ export function handleEvent(event: BridgeEvent): void {
       useChatStore.getState().upsertToolActivity(event);
       break;
     case "audio_level":
-      useLevelStore.getState().setLevels(event.input, event.output);
+      useLevelStore.getState().setLevels(event);
       break;
     case "interruption":
     case "error":

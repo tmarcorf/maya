@@ -1,72 +1,66 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { ChatPanel } from "@/features/chat/ChatPanel";
 import { ConnectionStatus } from "@/features/connection/ConnectionStatus";
-import { Orb } from "@/features/orb/Orb";
-import { WakeToggle } from "@/features/wake-word/WakeToggle";
+import { OrbStage } from "@/features/orb/OrbStage";
+import { OscilloscopeStage } from "@/features/orb/OscilloscopeStage";
+import { SettingsButton, SettingsPanel } from "@/features/settings/SettingsPanel";
 import { initBridge } from "@/lib/dispatcher";
-import { STATE_META, wakeStatusLabel } from "@/shared/stateMeta";
+import { wakeStatusLabel } from "@/shared/stateMeta";
 import { useBridgeStore } from "@/store/useBridgeStore";
 import { hydrateChatHistory } from "@/store/useChatStore";
+import { useOrbSettingsStore } from "@/store/useOrbSettingsStore";
 
 /**
- * Painel de instrumentos — header com a identidade FBC, orb central com
- * readout de estado e o registro da conversa abaixo.
+ * Painel de instrumentos — o orb ocupa 60% da largura, o registro da conversa
+ * os 40% restantes. Abaixo de `lg` os dois empilham, senão a conversa vira
+ * uma faixa ilegível.
  */
 export default function App() {
   useEffect(() => {
     hydrateChatHistory();
     return initBridge();
   }, []);
-  const voice = useBridgeStore((s) => s.voice);
   const wake = useBridgeStore((s) => s.wake);
   const session = useBridgeStore((s) => s.session);
-
-  const meta = STATE_META[voice];
+  const palette = useOrbSettingsStore((s) => s.palette);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex shrink-0 items-center justify-between gap-4 border-b border-line px-4 py-3">
-        <div className="flex items-baseline gap-3">
-          <span className="eyebrow text-text">◤ Polaris</span>
-          <span className="eyebrow hidden text-dim sm:inline">companion de voz</span>
+    <div className="app-root flex h-full flex-col md:flex-row" data-palette={palette}>
+      {/* Palco do orb: canvas em tela cheia do painel, HUD sobreposto. */}
+      <section className="orb-stage relative h-[42vh] min-h-[220px] shrink-0 overflow-hidden md:h-auto md:min-h-0 md:w-0 md:flex-[3]">
+        <div className="absolute inset-0">
+          <OrbStage />
         </div>
-        <div className="flex items-center gap-4">
-          <ConnectionStatus />
-          <WakeToggle />
-        </div>
-      </header>
-
-      <main className="flex min-h-0 flex-1 flex-col">
-        <section className="relative flex h-[38vh] min-h-[200px] shrink-0 items-center justify-center">
-          <div className="absolute inset-0">
-            <Orb />
-          </div>
-          <div className="pointer-events-none absolute inset-x-0 bottom-3 flex flex-col items-center gap-1.5">
-            <div className="eyebrow flex items-center gap-2" style={{ color: meta.color }}>
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
-              Estado: {meta.label}
-            </div>
-            <div className="eyebrow text-dim">
-              Wake word:{" "}
-              <span className={wake.enabled ? "text-state-listening" : ""}>
-                {wake.enabled ? wakeStatusLabel(wake.state) : "desligado"}
-              </span>
+        {/* Traço de áudio da Polaris, sob o orb — visível só quando ela fala. */}
+        <OscilloscopeStage />
+        <div className="orb-hud">
+          {session?.appSessionId && (
+            <div className="orb-meta eyebrow hidden text-dim/60 md:block">
+              Wake {wake.enabled ? wakeStatusLabel(wake.state) : "desligado"}
               {wake.enabled && wake.phrase ? ` — “${wake.phrase}”` : ""}
+              {` · ${session.appSessionId}`}
+              {session.hermesSessionId ? ` · ${session.hermesSessionId}` : ""}
             </div>
-            {session?.appSessionId && (
-              <div className="eyebrow text-dim/60">
-                {session.appSessionId}
-                {session.hermesSessionId ? ` · ${session.hermesSessionId}` : ""}
-              </div>
-            )}
+          )}
+        </div>
+      </section>
+
+      {/* Conversa: transcrição, resposta em streaming e ações do Hermes.
+          Sem divisor nem borda: o fundo é o mesmo da paleta do orb. */}
+      <section className="palette-bg flex min-h-0 flex-1 flex-col md:w-0 md:flex-[2]">
+        <header className="flex shrink-0 items-center justify-between gap-3 px-4 py-3">
+          <span className="eyebrow text-text">Conversa</span>
+          <div className="flex items-center gap-3">
+            <ConnectionStatus />
+            <SettingsButton onClick={() => setSettingsOpen(true)} />
           </div>
-        </section>
-
-        <div className="h-px shrink-0 bg-line" />
-
+        </header>
         <ChatPanel />
-      </main>
+      </section>
+
+      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }

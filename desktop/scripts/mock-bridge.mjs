@@ -1,10 +1,10 @@
 /**
  * Mock da bridge Polaris — desenvolvimento do renderer sem backend.
  *
- * Implementa o mesmo protocolo de `pipeline/bridge.py` e roda uma cena
- * scriptada em loop: idle → escuta → fala do usuário (níveis de mic) →
- * transcrição → pensando (com tool) → streaming de texto → fala da
- * Polaris (níveis de TTS) → idle.
+ * Implementa o mesmo protocolo de `pipeline/bridge.py`: handshake, estado
+ * inicial e os comandos `get_state`, `set_wake_word_enabled` e `ping`. Além
+ * disso roda uma conversa em loop com níveis de áudio a 30 Hz, para dar como
+ * ver o orb reagindo e a timeline se montando sem subir Whisper/TTS.
  *
  * Uso:
  *   npm run mock          (porta 8686, default)
@@ -14,8 +14,9 @@
 import { WebSocket, WebSocketServer } from "ws";
 
 const PORT = Number(process.env.MOCK_PORT ?? 8686);
+const SPECTRUM_BINS = 32;
+const LEVEL_HZ = 30;
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const now = () => Date.now();
 
 const state = {
@@ -37,11 +38,134 @@ function broadcast(event) {
   for (const client of wss.clients) send(client, event);
 }
 
+// ── Áudio sintético ────────────────────────────────────────────────────────
+// Envelope de fala: rajadas rápidas em cima de uma onda lenta, para o orb ter
+// ataque e silêncio de verdade em vez de um seno bonitinho.
+
+let clock = 0;
+
+function speechEnvelope(t) {
+  const syllable = Math.pow(Math.max(0, Math.sin(t * 7.5)), 2);
+  const phrase = 0.55 + 0.45 * Math.sin(t * 0.7);
+  return Math.min(1, syllable * phrase * 0.9);
+}
+
+function spectrumFor(level, t) {
+  const bins = new Array(SPECTRUM_BINS);
+  // Formante que passeia, para os filamentos do orb não ficarem estáticos.
+  const formant = 8 + Math.sin(t * 1.3) * 4;
+  for (let i = 0; i < SPECTRUM_BINS; i++) {
+    const distance = Math.abs(i - formant) / SPECTRUM_BINS;
+    const shape = Math.exp(-distance * 6) * 0.8 + Math.pow(1 - i / SPECTRUM_BINS, 2.2) * 0.4;
+    const noise = 0.85 + Math.random() * 0.3;
+    bins[i] = Math.max(0, Math.min(255, Math.round(shape * noise * level * 255)));
+  }
+  return bins;
+}
+
+function emitLevels() {
+  const speaking = state.voice === "speaking";
+  const listening = state.voice === "user_speaking" || state.voice === "listening";
+  const level = speaking || listening ? speechEnvelope(clock) : 0;
+
+  const bins = spectrumFor(level, clock);
+  const mean = (from, to) => {
+    let sum = 0;
+    for (let i = from; i < to; i++) sum += bins[i];
+    return sum / (to - from) / 255;
+  };
+
+  broadcast({
+    type: "audio_level",
+    input: listening ? level : 0,
+    output: speaking ? level : 0,
+    level,
+    bass: mean(0, 6),
+    mid: mean(6, 18),
+    treble: mean(18, SPECTRUM_BINS),
+    spectrum: bins,
+  });
+}
+
+setInterval(() => {
+  clock += 1 / LEVEL_HZ;
+  emitLevels();
+}, 1000 / LEVEL_HZ);
+
+// ── Conversa roteirizada ───────────────────────────────────────────────────
+
+const SCRIPT = [
+  { after: 1500, run: () => setVoice("user_speaking") },
+  { after: 1800, run: () => setVoice("listening") },
+  {
+    after: 300,
+    run: () => broadcast({ type: "user_transcript", text: "quantos arquivos tem no projeto?" }),
+  },
+  { after: 200, run: () => setVoice("thinking") },
+  {
+    after: 900,
+    run: () =>
+      broadcast({
+        type: "tool_activity",
+        tool: "terminal",
+        label: "find . -type f | wc -l",
+        emoji: "⚙",
+        toolCallId: "call_mock_1",
+        status: "running",
+      }),
+  },
+  {
+    after: 1400,
+    run: () =>
+      broadcast({
+        type: "tool_activity",
+        tool: "terminal",
+        label: "find . -type f | wc -l",
+        emoji: "⚙",
+        toolCallId: "call_mock_1",
+        status: "completed",
+      }),
+  },
+  { after: 400, run: () => setVoice("speaking") },
+  { after: 0, run: () => streamAgentText() },
+  { after: 4200, run: () => setVoice("idle") },
+];
+
+const REPLY = "São 1.284 arquivos, sem contar node_modules. A maior parte está em pipeline/ e desktop/src.";
+
+let turn = 0;
+
+function streamAgentText() {
+  const turnId = `mock-turn-${++turn}`;
+  const words = REPLY.split(" ");
+  let index = 0;
+  const timer = setInterval(() => {
+    if (index >= words.length) {
+      clearInterval(timer);
+      broadcast({ type: "agent_text_end", turnId, text: REPLY });
+      return;
+    }
+    broadcast({ type: "agent_text", turnId, delta: `${words[index++]} ` });
+  }, 110);
+}
+
 function setVoice(voice) {
-  if (voice === state.voice) return;
   state.voice = voice;
   broadcast({ type: "state", voice, wake: state.wake });
 }
+
+async function runScript() {
+  for (;;) {
+    for (const step of SCRIPT) {
+      await new Promise((resolve) => setTimeout(resolve, step.after));
+      if (wss.clients.size > 0) step.run();
+    }
+  }
+}
+
+void runScript();
+
+// ── Conexões e comandos ────────────────────────────────────────────────────
 
 wss.on("connection", (socket) => {
   console.log("[mock] client conectado");
@@ -71,84 +195,3 @@ wss.on("connection", (socket) => {
     }
   });
 });
-
-/** Níveis de áudio sintéticos em ~30 Hz (0 → pico → 0). */
-async function playLevels(channel, durationMs) {
-  const steps = Math.max(1, Math.round(durationMs / 33));
-  for (let i = 0; i < steps; i++) {
-    const envelope = Math.sin((Math.PI * i) / steps); // sobe e desce
-    const level = Math.max(0, envelope * (0.35 + 0.35 * Math.random()));
-    broadcast({ type: "audio_level", input: channel === "input" ? level : 0, output: channel === "output" ? level : 0 });
-    await sleep(33);
-  }
-  broadcast({ type: "audio_level", input: 0, output: 0 });
-}
-
-/** Um turno completo de conversa. */
-async function exchange(question, answerDeltas, withTool = false) {
-  setVoice("listening");
-  await sleep(900);
-
-  setVoice("user_speaking");
-  await playLevels("input", 1400);
-  broadcast({ type: "user_transcript", text: question });
-  setVoice("listening");
-  await sleep(600);
-
-  setVoice("thinking");
-  const turnId = `turn-mock-${now()}`;
-  if (withTool) {
-    const toolCallId = `call-mock-${now()}`;
-    broadcast({ type: "tool_activity", tool: "terminal", label: "date +%H:%M", emoji: "▸", toolCallId, status: "running" });
-    await sleep(700);
-    broadcast({ type: "tool_activity", tool: "terminal", label: "date +%H:%M", emoji: "▸", toolCallId, status: "completed" });
-    await sleep(500);
-  }
-  for (const delta of answerDeltas) {
-    broadcast({ type: "agent_text", turnId, delta });
-    await sleep(90 + Math.random() * 120);
-  }
-  broadcast({ type: "agent_text_end", turnId, text: answerDeltas.join("") });
-
-  setVoice("speaking");
-  await playLevels("output", answerDeltas.join("").length * 55);
-  setVoice("idle");
-  await sleep(2600);
-}
-
-const EXCHANGES = [
-  [
-    "Que horas são?",
-    ["São", " **14h32**", ", no", " fuso", " de", " Brasília", "."],
-    true,
-  ],
-  [
-    "Me mostra um exemplo de código em Python",
-    [
-      "Claro. Um", " exemplo", " rápido:\n\n",
-      "```python\nprint(\"Olá, Polaris\")\n```\n\n",
-      "- Fica", " à vontade", " para", " testar",
-      "\n- E", " me perguntar", " qualquer", " coisa",
-    ],
-    false,
-  ],
-  [
-    "O que você é?",
-    [
-      "Sou a", " Polaris", " — sua", " bússola", " local.",
-      " Tudo", " roda", " nesta", " máquina", ".",
-    ],
-    false,
-  ],
-];
-
-async function scene() {
-  let index = 0;
-  for (;;) {
-    const [question, deltas, withTool] = EXCHANGES[index % EXCHANGES.length];
-    index += 1;
-    await exchange(question, deltas, withTool);
-  }
-}
-
-scene();

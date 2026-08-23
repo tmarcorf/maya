@@ -168,11 +168,6 @@ WAKE_WORD_TIMEOUT=10     # segundos de inatividade até voltar a dormir
 
 Comportamento: enquanto dorme, nada vai ao Hermes (as falas são descartadas); ao ouvir uma das frases, o Polaris acorda e a conversa flui normalmente; após `WAKE_WORD_TIMEOUT` segundos sem fala, volta a dormir. O casamento é tolerante: ignora maiúsculas, pontuação e acentos (o Whisper costuma transcrever "polares" em vez de "Polaris" e omitir acentos — ambas as variantes são aceitas automaticamente).
 
-Exemplo de conversa:
-
-> Você: "Que arquivos existem no meu projeto?"
-> Polaris (via Hermes + terminal): "Encontrei os seguintes arquivos..."
-
 ## Testes
 
 ```bash

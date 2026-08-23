@@ -198,10 +198,48 @@ def test_build_pipeline_wake_controller_always_adds_toggleable_strategy():
     assert isinstance(start_strategies[0], ToggleableWakePhraseStrategy)
     assert len(start_strategies) == 3  # wake + the two pipecat defaults
 
-    # The observer sits at the end of the chain, after the aggregators.
+    # The observer sits between the TTS service and the output transport
+    # (processors[0] is the source and processors[-1] the sink).
     processors = pipeline.processors
     assert len(processors) == 10
-    assert processors[8] is observer
+    assert processors[6] is observer
+    assert processors[7] is transport.output()
+    assert isinstance(processors[8], LLMAssistantAggregator)
+
+
+def test_build_pipeline_transcript_observer_between_stt_and_aggregator():
+    from pipeline.bridge import UserTranscriptObserver, VoiceBridge
+
+    transport = _FakeTransport()
+    stt, llm, tts = FrameProcessor(), FrameProcessor(), FrameProcessor()
+    context = LLMContext()
+    controller = WakeWordController(enabled=False)
+    observer = VoiceBridge(wake_controller=controller)
+    transcript_observer = UserTranscriptObserver()
+
+    pipeline = build_pipeline(
+        transport,
+        stt,
+        llm,
+        tts,
+        context,
+        vad_analyzer=None,
+        wake_controller=controller,
+        observer=observer,
+        transcript_observer=transcript_observer,
+    )
+
+    processors = pipeline.processors
+    assert len(processors) == 11
+    assert processors[1] is transport.input()
+    assert processors[2] is stt
+    assert processors[3] is transcript_observer
+    assert isinstance(processors[4], LLMUserAggregator)
+    assert processors[5] is llm
+    assert processors[6] is tts
+    assert processors[7] is observer
+    assert processors[8] is transport.output()
+    assert isinstance(processors[9], LLMAssistantAggregator)
 
 
 def test_build_services_picks_elevenlabs_tts():

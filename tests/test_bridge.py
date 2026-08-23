@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
@@ -14,12 +15,23 @@ from pipecat.frames.frames import (
     TranscriptionFrame,
     TTSAudioRawFrame,
     TTSStartedFrame,
+    TTSStoppedFrame,
+    TTSTextFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
+    VADUserStartedSpeakingFrame,
+    VADUserStoppedSpeakingFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection
 
-from pipeline.bridge import VoiceBridge, _rms
+from pipeline.bridge import (
+    SPECTRUM_BINS_WIRE,
+    VoiceBridge,
+    _analyse_pcm,
+    _ChannelBuffer,
+    _rms,
+    _to_mono,
+)
 from pipeline.frames import ToolActivityFrame
 from pipeline.wake_controller import WakeWordController
 
@@ -66,8 +78,10 @@ async def test_state_machine_happy_path():
         LLMFullResponseStartFrame(),
         LLMTextFrame(text="Olá"),
         TTSStartedFrame(),
-        BotStoppedSpeakingFrame(),
+        # Ordem real: o texto completa antes do playback da última sentença
+        # terminar — o BotStopped do transport é o último frame do turno.
         LLMFullResponseEndFrame(),
+        BotStoppedSpeakingFrame(),
     )
 
     voices = [event["voice"] for event in _events(sink, "state")]
@@ -83,6 +97,78 @@ async def test_state_machine_happy_path():
     assert ends[0]["turnId"] == deltas[0]["turnId"]
 
 
+async def test_tts_stream_drives_the_state_machine():
+    """Frame order as observed in production (observer between the TTS
+    service and the output transport): the TTS service re-emits the LLM
+    response boundary frames and emits the TTS stream."""
+
+    bridge, sink = _make_bridge()
+
+    await _feed(
+        bridge,
+        LLMFullResponseStartFrame(),
+        TTSStartedFrame(),
+        TTSTextFrame(text="Olá", aggregated_by="test"),
+        TTSAudioRawFrame(audio=_pcm(), sample_rate=24000, num_channels=1),
+        TTSStoppedFrame(),
+        LLMFullResponseEndFrame(),
+    )
+
+    voices = [event["voice"] for event in _events(sink, "state")]
+    assert voices == ["thinking", "speaking", "idle"]
+    assert bridge.voice == "idle"
+
+    deltas = _events(sink, "agent_text")
+    assert len(deltas) == 1 and deltas[0]["delta"] == "Olá"
+    ends = _events(sink, "agent_text_end")
+    assert len(ends) == 1 and ends[0]["text"] == "Olá"
+    assert ends[0]["turnId"] == deltas[0]["turnId"]
+
+    # While speaking, the audio_level event carries the OUTPUT side.
+    levels = _events(sink, "audio_level")
+    assert len(levels) == 1
+    assert levels[0]["output"] > 0
+    assert levels[0]["level"] == pytest.approx(levels[0]["output"])
+
+
+async def test_multi_sentence_tts_keeps_speaking_through_sentence_gaps():
+    """Respostas com várias sentenças emitem um TTSStarted/Stopped por
+    sentença (TextAggregationMode.SENTENCE), e o transport ecoa
+    BotStoppedSpeakingFrame a cada fim de playback. O estado não pode piscar
+    para idle no vácuo entre sentenças, e o LLMFullResponseEnd (texto
+    completo) também não derruba: o áudio da última sentença ainda está em
+    voo. O idle só chega com o BotStoppedSpeakingFrame final — o fim do
+    playback real."""
+
+    bridge, sink = _make_bridge()
+
+    await _feed(
+        bridge,
+        UserStartedSpeakingFrame(),
+        LLMFullResponseStartFrame(),
+        TTSStartedFrame(),
+        TTSTextFrame(text="Primeira", aggregated_by="test"),
+        TTSAudioRawFrame(audio=_pcm(), sample_rate=24000, num_channels=1),
+        TTSStoppedFrame(),
+        BotStoppedSpeakingFrame(),  # transport: fim do playback da 1ª sentença
+        TTSStartedFrame(),
+        TTSTextFrame(text="segunda", aggregated_by="test"),
+        TTSAudioRawFrame(audio=_pcm(), sample_rate=24000, num_channels=1),
+        TTSStoppedFrame(),
+        LLMFullResponseEndFrame(),  # texto completo — NÃO pode derrubar o estado
+        BotStoppedSpeakingFrame(),  # transport: fim do playback — só aqui cai
+    )
+
+    voices = [event["voice"] for event in _events(sink, "state")]
+    # Sem idle entre as sentenças nem no fim do texto:
+    # user_speaking → thinking → speaking → (idle só no último BotStopped).
+    assert voices == ["user_speaking", "thinking", "speaking", "idle"]
+    assert bridge.voice == "idle"
+
+    ends = _events(sink, "agent_text_end")
+    assert len(ends) == 1 and ends[0]["text"] == "Primeirasegunda"
+
+
 async def test_user_transcript_published():
     bridge, sink = _make_bridge()
 
@@ -95,6 +181,60 @@ async def test_user_transcript_published():
     assert len(transcripts) == 1
     assert transcripts[0]["text"] == "que horas são?"
     assert "ts" in transcripts[0]
+
+
+async def test_user_transcript_observer_publishes_and_passes_through():
+    from pipeline.bridge import UserTranscriptObserver
+
+    observer = UserTranscriptObserver()
+    sink = _Sink()
+    observer.set_publisher(sink)
+
+    # push_frame is a no-op outside a running pipeline; spy on it via an
+    # instance attribute (non-data descriptor) to verify the passthrough.
+    pushed: list[tuple] = []
+
+    async def fake_push(frame, direction):
+        pushed.append((frame, direction))
+
+    observer.push_frame = fake_push  # type: ignore[method-assign]
+
+    frame = TranscriptionFrame(
+        text="que horas são?", user_id="user", timestamp="2026-08-19T12:00:00Z"
+    )
+    await observer.process_frame(frame, FrameDirection.DOWNSTREAM)
+
+    transcripts = _events(sink, "user_transcript")
+    assert len(transcripts) == 1
+    assert transcripts[0]["text"] == "que horas são?"
+    assert "ts" in transcripts[0]
+    # The frame keeps flowing to the aggregator.
+    assert pushed == [(frame, FrameDirection.DOWNSTREAM)]
+
+
+async def test_user_transcript_observer_ignores_non_transcription_frames():
+    from pipeline.bridge import UserTranscriptObserver
+
+    observer = UserTranscriptObserver()
+    sink = _Sink()
+    observer.set_publisher(sink)
+    pushed: list = []
+
+    async def fake_push(frame, direction):
+        pushed.append(frame)
+
+    observer.push_frame = fake_push  # type: ignore[method-assign]
+
+    await observer.process_frame(
+        TTSTextFrame(text="olá", aggregated_by="test"), FrameDirection.DOWNSTREAM
+    )
+    await observer.process_frame(
+        TranscriptionFrame(text="   ", user_id="user", timestamp="x"),
+        FrameDirection.DOWNSTREAM,
+    )
+
+    assert _events(sink, "user_transcript") == []
+    assert len(pushed) == 2  # passthrough for every frame, without exception
 
 
 async def test_interruption_moves_speaking_to_user_speaking():
@@ -140,6 +280,53 @@ async def test_state_transitions_are_idempotent():
     assert [event["voice"] for event in _events(sink, "state")] == ["user_speaking"]
 
 
+async def test_vad_frames_reveal_speech_while_wake_asleep():
+    """Raw VAD frames must move the orb even with no user turn started.
+
+    While the wake word is asleep the wake strategy swallows the turn
+    start, so no UserStartedSpeakingFrame is broadcast — the bridge would
+    otherwise stay ``idle`` the whole time the user talks.
+    """
+    bridge, sink = _make_bridge(enabled=True)  # wake controller asleep
+
+    await _feed(bridge, VADUserStartedSpeakingFrame(), VADUserStoppedSpeakingFrame())
+
+    voices = [event["voice"] for event in _events(sink, "state")]
+    assert voices == ["user_speaking", "idle"]
+    assert bridge.voice == "idle"
+
+
+async def test_vad_stop_keeps_turn_flow_when_turn_active():
+    """With a real turn in flight, VAD stop must NOT reset to idle.
+
+    The listening transition belongs to the UserStoppedSpeakingFrame
+    broadcast that follows the turn-start machinery.
+    """
+    bridge, sink = _make_bridge()
+
+    await _feed(
+        bridge,
+        VADUserStartedSpeakingFrame(),
+        UserStartedSpeakingFrame(),
+        VADUserStoppedSpeakingFrame(),
+        UserStoppedSpeakingFrame(),
+    )
+
+    voices = [event["voice"] for event in _events(sink, "state")]
+    assert voices == ["user_speaking", "listening"]
+    assert bridge.voice == "listening"
+
+
+async def test_vad_stop_alone_does_not_emit_state():
+    """A VAD stop without a preceding start is a no-op (idempotent)."""
+    bridge, sink = _make_bridge()
+
+    await _feed(bridge, VADUserStoppedSpeakingFrame())
+
+    assert _events(sink, "state") == []
+    assert bridge.voice == "idle"
+
+
 async def test_state_carries_wake_payload():
     controller = WakeWordController(enabled=True)
     controller.notify_detected("e aí polaris")
@@ -166,6 +353,73 @@ async def test_audio_levels_rms_and_throttle():
     # A second chunk immediately after is throttled (no new event).
     await _feed(bridge, InputAudioRawFrame(audio=_pcm(), sample_rate=24000, num_channels=1))
     assert len(_events(sink, "audio_level")) == 1
+
+
+async def test_audio_level_carries_spectrum_of_the_active_side():
+    bridge, sink = _make_bridge()
+
+    await _feed(bridge, TTSAudioRawFrame(audio=_pcm(), sample_rate=24000, num_channels=1))
+    event = _events(sink, "audio_level")[0]
+
+    assert len(event["spectrum"]) == SPECTRUM_BINS_WIRE
+    assert all(isinstance(v, int) and 0 <= v <= 255 for v in event["spectrum"])
+    # _pcm() is a 440 Hz tone: energy belongs to mid, not bass or treble.
+    assert event["mid"] > event["bass"]
+    assert event["mid"] > event["treble"]
+    assert event["level"] == event["output"]
+
+
+async def test_active_side_follows_the_voice_state():
+    bridge, sink = _make_bridge()
+
+    # While the user speaks, the orb must visualize the microphone even if a
+    # stale TTS chunk arrives in the same window.
+    await _feed(bridge, UserStartedSpeakingFrame())
+    await _feed(bridge, InputAudioRawFrame(audio=_pcm(), sample_rate=24000, num_channels=1))
+    assert _events(sink, "audio_level")[-1]["level"] == pytest.approx(
+        _events(sink, "audio_level")[-1]["input"]
+    )
+
+
+def test_analyse_pcm_separates_bands():
+    def tone(hz: float, rate: int = 24000, n: int = 2048) -> np.ndarray:
+        return np.sin(2 * np.pi * hz * np.arange(n) / rate).astype(np.float32) * 0.8
+
+    low, _ = _analyse_pcm(tone(80), 24000)
+    mid, _ = _analyse_pcm(tone(600), 24000)
+    high, _ = _analyse_pcm(tone(6000), 24000)
+
+    assert low["bass"] > low["mid"]
+    assert mid["mid"] > mid["bass"] and mid["mid"] > mid["treble"]
+    assert high["treble"] > high["mid"]
+
+
+def test_analyse_pcm_handles_empty_and_short_input():
+    for samples in (np.empty(0, dtype=np.float32), np.zeros(32, dtype=np.float32)):
+        bands, spectrum = _analyse_pcm(samples, 24000)
+        assert bands == {"bass": 0.0, "mid": 0.0, "treble": 0.0}
+        assert spectrum == [0] * SPECTRUM_BINS_WIRE
+
+
+def test_to_mono_downmixes_stereo():
+    interleaved = np.array([100, 300, 200, 400], dtype=np.int16)
+    mono = _to_mono(interleaved.tobytes(), 2)
+    assert mono.size == 2
+    assert mono == pytest.approx(np.array([200, 300]) / 32768.0, abs=1e-6)
+
+
+def test_channel_buffer_keeps_the_newest_samples():
+    buffer = _ChannelBuffer(size=4)
+    buffer.push(np.array([1, 2, 3], dtype=np.float32), 24000)
+    assert buffer.snapshot() == pytest.approx([1, 2, 3])
+
+    buffer.push(np.array([4, 5], dtype=np.float32), 24000)
+    assert buffer.snapshot() == pytest.approx([2, 3, 4, 5])
+
+    # A rate change invalidates the window: bins would map to the wrong Hz.
+    buffer.push(np.array([9], dtype=np.float32), 16000)
+    assert buffer.snapshot() == pytest.approx([9])
+    assert buffer.sample_rate == 16000
 
 
 async def test_tool_activity_throttle_never_drops_completed():

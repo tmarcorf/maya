@@ -40,8 +40,10 @@ function toggleWakeWord(): void {
 
 function createMainWindow(): void {
   const win = new BrowserWindow({
-    width: 980,
-    height: 720,
+    // Larga o bastante para o layout 60/40 lado a lado caber de saída; abaixo
+    // de 768 px de largura o renderer empilha orb e conversa.
+    width: 1240,
+    height: 820,
     minWidth: 640,
     minHeight: 420,
     title: "Polaris — voz",

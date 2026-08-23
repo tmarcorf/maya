@@ -1,9 +1,21 @@
 """Voice pipeline for Polaris.
 
-Order mirrors the official Pipecat local-agent example (spec §13):
+Order mirrors the official Pipecat local-agent example (spec §13), with the
+desktop bridge observers inserted:
 
-    transport.input() → stt → user_aggregator → llm → tts
-        → transport.output() → assistant_aggregator
+    transport.input() → stt → [transcript_observer] → user_aggregator → llm → tts
+        → [observer] → transport.output() → assistant_aggregator
+
+The main observer needs to sit between the TTS service and the output
+transport — not at the end — because the assistant aggregator consumes
+LLMFullResponseStartFrame/EndFrame without re-pushing them, while the TTS
+service re-emits them downstream along with the full TTS stream
+(TTSStartedFrame, TTSAudioRawFrame, TTSTextFrame, TTSStoppedFrame) that the
+bridge's voice state machine and audio levels depend on.
+
+The transcript observer must sit between the STT service and the user
+aggregator: the aggregator consumes TranscriptionFrame (append-only) without
+re-pushing it, so an observer placed downstream would never see it.
 
 Barge-in comes from native mechanisms (spec §9): the VAD analyzer attached to
 the user aggregator detects speech during the bot turn, the pipeline cancels
@@ -33,7 +45,7 @@ from pipecat.transcriptions.language import Language
 from pipecat.workers.runner import WorkerRunner
 
 from config.settings import DEFAULT_WAKE_WORD_TIMEOUT, Settings
-from pipeline.bridge import BridgeServer, VoiceBridge
+from pipeline.bridge import BridgeServer, UserTranscriptObserver, VoiceBridge
 from pipeline.hermes import HermesLLMService, HermesSessionManager
 from pipeline.wake_controller import WakeWordController
 from pipeline.wake_strategy import ToggleableWakePhraseStrategy
@@ -226,6 +238,7 @@ def build_pipeline(
     wake_timeout: float = DEFAULT_WAKE_WORD_TIMEOUT,
     wake_controller: WakeWordController | None = None,
     observer: FrameProcessor | None = None,
+    transcript_observer: FrameProcessor | None = None,
 ):
     """Assemble the Pipeline with the spec §13 ordering.
 
@@ -242,8 +255,20 @@ def build_pipeline(
     With ``wake_word_enabled`` but no controller (tests/backward compat),
     the plain pipecat strategy is used instead.
 
-    ``observer`` (the desktop bridge) is appended at the end of the chain,
-    where it sees every frame flowing through the pipeline exactly once.
+    ``observer`` (the desktop bridge) sits between the TTS service and the
+    output transport. The assistant aggregator consumes the LLM response
+    boundary frames without re-pushing them, so an observer appended at the
+    end would never see LLMFullResponseStartFrame and the bridge would never
+    reach the ``speaking`` state. In this position it still sees every
+    SystemFrame (mic audio, VAD/user frames) and the TTS stream re-emitted
+    downstream by the TTS service; the Bot frames emitted by the output
+    transport reach it via the upstream copies.
+
+    ``transcript_observer`` (optional) sits between the STT service and the
+    user aggregator and forwards each final transcription to the bridge as a
+    ``user_transcript`` event. It must stay upstream of the aggregator,
+    which consumes TranscriptionFrame without re-pushing it. When None
+    nothing is inserted and the ordering matches the plain spec §13 chain.
     """
     if vad_analyzer is _UNSET:
         vad_analyzer = SileroVADAnalyzer()
@@ -290,17 +315,13 @@ def build_pipeline(
         context,
         user_params=user_params,
     )
-    processors = [
-        transport.input(),
-        stt,
-        user_aggregator,
-        llm,
-        tts,
-        transport.output(),
-        assistant_aggregator,
-    ]
+    processors = [transport.input(), stt]
+    if transcript_observer is not None:
+        processors.append(transcript_observer)
+    processors.extend([user_aggregator, llm, tts])
     if observer is not None:
         processors.append(observer)
+    processors.extend([transport.output(), assistant_aggregator])
     return Pipeline(processors)
 
 
@@ -331,6 +352,7 @@ async def run_voice_agent(
         wake_controller=wake_controller,
         session_manager=session_manager,
     )
+    transcript_observer = UserTranscriptObserver()
     pipeline = build_pipeline(
         transport,
         stt,
@@ -342,6 +364,7 @@ async def run_voice_agent(
         wake_timeout=settings.wake_word_timeout,
         wake_controller=wake_controller,
         observer=observer,
+        transcript_observer=transcript_observer,
     )
 
     worker = PipelineWorker(
@@ -359,6 +382,7 @@ async def run_voice_agent(
         snapshot=observer.snapshot,
     )
     observer.set_publisher(bridge_server.publish)
+    transcript_observer.set_publisher(bridge_server.publish)
     # The wake controller listener is wired inside bridge_server.start().
 
     runner = WorkerRunner()

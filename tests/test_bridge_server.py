@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import json
 
+import numpy as np
 import pytest
 import websockets
+from pipecat.frames.frames import TTSAudioRawFrame
+from pipecat.processors.frame_processor import FrameDirection
 
-from pipeline.bridge import BridgeServer
+from pipeline.bridge import SPECTRUM_BINS_WIRE, BridgeServer, VoiceBridge
 from pipeline.wake_controller import WakeWordController
 
 
@@ -146,3 +149,28 @@ async def test_ping_pongs(server):
         ack = json.loads(await ws.recv())
         assert ack["ok"] is True
         assert ack["data"] == "pong"
+
+
+async def test_audio_level_reaches_the_client_with_spectrum(server):
+    """The full path: a PCM frame in the pipeline → spectrum on the wire."""
+    bridge_server, controller = server
+
+    async with await _connect(server) as ws:
+        await _handshake(ws)
+
+        bridge = VoiceBridge(wake_controller=controller)
+        bridge.set_publisher(bridge_server.publish)
+        # 440 Hz at 24 kHz, the TTS rate — as if Polaris were speaking.
+        samples = np.sin(2 * np.pi * 440 * np.arange(2400) / 24000) * 0.8
+        pcm = (samples * 32767).astype(np.int16).tobytes()
+        await bridge.process_frame(
+            TTSAudioRawFrame(audio=pcm, sample_rate=24000, num_channels=1),
+            FrameDirection.DOWNSTREAM,
+        )
+
+        event = json.loads(await ws.recv())
+        assert event["type"] == "audio_level"
+        assert 0.4 < event["output"] < 0.7
+        assert len(event["spectrum"]) == SPECTRUM_BINS_WIRE
+        assert event["mid"] > event["bass"]
+        assert max(event["spectrum"]) > 0

@@ -1,0 +1,18 @@
+{
+  "name": "sonic-orb",
+  "version": "1.0.0",
+  "description": "Audio-reactive animated orb built with Electron and Three.js",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --enable-logging"
+  },
+  "keywords": ["audio", "visualizer", "three.js", "electron", "orb"],
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^43.4.1"
+  },
+  "dependencies": {
+    "three": "^0.185.1"
+  }
+}

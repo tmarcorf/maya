@@ -100,6 +100,43 @@ export function hydrateChatHistory(): void {
     });
 }
 
+export type TimelineItem =
+  | { kind: "message"; id: string; ts: number; message: ChatMessage }
+  | { kind: "tool"; id: string; ts: number; activity: ToolActivity };
+
+/**
+ * Mensagens e atividades de ferramenta numa única linha do tempo.
+ *
+ * As duas listas já chegam ordenadas por `ts` (append-only), então basta um
+ * merge linear. Empate vai para a mensagem: a ferramenta é consequência do
+ * turno do agente, e lê melhor logo abaixo dele.
+ */
+export function selectTimeline(
+  state: Pick<ChatState, "messages" | "toolActivities">,
+): TimelineItem[] {
+  const { messages, toolActivities } = state;
+  const items: TimelineItem[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < messages.length || j < toolActivities.length) {
+    const message = messages[i];
+    const activity = toolActivities[j];
+    if (message && (!activity || message.ts <= activity.ts)) {
+      items.push({ kind: "message", id: message.id, ts: message.ts, message });
+      i++;
+    } else if (activity) {
+      items.push({
+        kind: "tool",
+        id: activity.toolCallId || `${activity.tool}-${activity.ts}`,
+        ts: activity.ts,
+        activity,
+      });
+      j++;
+    }
+  }
+  return items;
+}
+
 function newMessageId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
@@ -147,23 +184,36 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   },
 
   upsertToolActivity: (event) => {
-    const activity: ToolActivity = {
-      toolCallId: event.toolCallId,
-      tool: event.tool,
-      label: event.label,
-      emoji: event.emoji,
-      status: event.status,
-      ts: event.ts,
-    };
     set((state) => {
       const index = state.toolActivities.findIndex(
         (a) => a.toolCallId && a.toolCallId === event.toolCallId,
       );
       if (index === -1) {
-        return { toolActivities: [...state.toolActivities, activity] };
+        return {
+          toolActivities: [
+            ...state.toolActivities,
+            {
+              toolCallId: event.toolCallId,
+              tool: event.tool,
+              label: event.label,
+              emoji: event.emoji,
+              status: event.status,
+              ts: event.ts,
+            },
+          ],
+        };
       }
+      // `ts` é o instante em que a ferramenta apareceu, não o da última
+      // atualização: preservá-lo mantém o card ancorado no seu lugar da
+      // timeline quando o status vira `completed`.
       const next = [...state.toolActivities];
-      next[index] = activity;
+      next[index] = {
+        ...next[index],
+        tool: event.tool,
+        label: event.label,
+        emoji: event.emoji,
+        status: event.status,
+      };
       return { toolActivities: next };
     });
   },
