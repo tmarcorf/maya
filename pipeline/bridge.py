@@ -420,8 +420,18 @@ class VoiceBridge(FrameProcessor):
             return
         self._last_level_ts = now
 
-        event = {"type": "audio_level", **self._levels}
         side = self._active_side()
+        # Enquanto a Polaris fala, os chunks do microfone continuam chegando
+        # e pedem publicação a cada LEVEL_INTERVAL_SECS. O TTSStopped (fim da
+        # síntese da sentença) zera o nível e a janela do output — mas o
+        # playback ainda está em voo por segundos. Publicar o zero arrancaria
+        # o traço no meio da fala: o lado do output só publica com áudio
+        # fresco; sem ele, o frontend segura a última forma e decai no fim do
+        # turno (setActive(false) no idle).
+        if side == "output" and self._levels["output"] <= 0.0:
+            return
+
+        event = {"type": "audio_level", **self._levels}
         if side is not None:
             buffer = self._buffers[side]
             bands, spectrum = _analyse_pcm(buffer.snapshot(), buffer.sample_rate)
@@ -463,15 +473,33 @@ class UserTranscriptObserver(FrameProcessor):
     The LLM user aggregator consumes ``TranscriptionFrame`` without
     re-pushing it, so the VoiceBridge at the end of the pipeline never sees
     transcriptions in production. This observer publishes each final
-    transcription as a ``user_transcript`` event and passes the frame
-    through unchanged — the aggregator keeps consuming it as usual. The STT
-    service transcribes regardless of the wake word state, so the transcript
-    reaches the chat even while Polaris is asleep.
+    transcription that will actually be processed by Hermes as a
+    ``user_transcript`` event and passes every frame through unchanged — the
+    aggregator keeps consuming it as usual.
+
+    The wake gate lives in the aggregator's turn-start strategies: while the
+    wake word is asleep the STT keeps transcribing but no user turn ever
+    starts, so Hermes never sees the utterance. The aggregator broadcasts
+    ``UserStartedSpeakingFrame`` upstream only when a turn really starts —
+    that broadcast opens the turn and ``UserStoppedSpeakingFrame`` closes it
+    (the default stop strategy waits for the final transcription before
+    broadcasting, so no speech of the turn is missed). Transcriptions heard
+    before the turn opens are held in a buffer: in wake mode the strategy
+    evaluates the transcription before opening the turn, so the broadcast
+    arrives after the wake phrase segment's transcription. Segments that end
+    without a turn were never processed and are dropped. Once the turn is
+    open the VAD segment boundaries no longer matter — the user may keep
+    speaking ("Polaris" alone, then the request in a new segment), so later
+    segments publish live instead of re-buffering. With the wake word off the
+    broadcast arrives at VAD start, so the transcriptions publish live, as
+    before.
     """
 
     def __init__(self) -> None:
         super().__init__()
         self._publisher: Publisher | None = None
+        self._pending: list[str] = []
+        self._turn_started = False
 
     def set_publisher(self, publisher: Publisher | None) -> None:
         """Attach the event sink (the ``BridgeServer.publish`` coroutine)."""
@@ -480,10 +508,37 @@ class UserTranscriptObserver(FrameProcessor):
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
 
-        if isinstance(frame, TranscriptionFrame) and frame.text.strip():
+        if isinstance(frame, UserStartedSpeakingFrame):
+            # O gate abriu: o que foi transcrito desde o início do segmento
+            # será processado pelo Hermes.
+            self._turn_started = True
+            for text in self._pending:
+                await self._publish({"type": "user_transcript", "text": text})
+            self._pending = []
+        elif isinstance(frame, UserStoppedSpeakingFrame):
+            # Turno fechado (a stop strategy espera a transcrição final
+            # antes deste broadcast). O estado volta ao gate.
+            self._turn_started = False
+            self._pending = []
+        elif isinstance(frame, VADUserStartedSpeakingFrame):
+            # Novo segmento de fala. Com o turno já aberto (palavra de
+            # ativação no segmento anterior, usuário continuando a falar) o
+            # estado persiste; sem turno, limpa o buffer de um segmento que
+            # acabou sem publicar.
+            if not self._turn_started:
+                self._pending = []
+        elif isinstance(frame, VADUserStoppedSpeakingFrame):
+            # Segmento encerrou sem turno: dormindo, a palavra de ativação
+            # nunca casou — o Hermes não viu esta fala; descarta.
+            if not self._turn_started:
+                self._pending = []
+        elif isinstance(frame, TranscriptionFrame) and frame.text.strip():
             # Whisper only ever emits final transcriptions; interim frames
             # are a distinct class and never match this check.
-            await self._publish({"type": "user_transcript", "text": frame.text})
+            if self._turn_started:
+                await self._publish({"type": "user_transcript", "text": frame.text})
+            else:
+                self._pending.append(frame.text)
 
         await self.push_frame(frame, direction)
 

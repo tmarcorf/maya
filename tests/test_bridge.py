@@ -184,6 +184,10 @@ async def test_user_transcript_published():
 
 
 async def test_user_transcript_observer_publishes_and_passes_through():
+    """Sem wake word, o turno começa com o VAD (broadcast do aggregator chega
+    antes da transcrição): a fala publica na hora. O observer publica só o que
+    o Hermes processa — o broadcast de UserStartedSpeakingFrame é o gate."""
+
     from pipeline.bridge import UserTranscriptObserver
 
     observer = UserTranscriptObserver()
@@ -199,17 +203,147 @@ async def test_user_transcript_observer_publishes_and_passes_through():
 
     observer.push_frame = fake_push  # type: ignore[method-assign]
 
+    vad_start = VADUserStartedSpeakingFrame()
     frame = TranscriptionFrame(
         text="que horas são?", user_id="user", timestamp="2026-08-19T12:00:00Z"
     )
+    turn_start = UserStartedSpeakingFrame()
+    await observer.process_frame(vad_start, FrameDirection.UPSTREAM)
     await observer.process_frame(frame, FrameDirection.DOWNSTREAM)
+    await observer.process_frame(turn_start, FrameDirection.UPSTREAM)
 
     transcripts = _events(sink, "user_transcript")
     assert len(transcripts) == 1
     assert transcripts[0]["text"] == "que horas são?"
     assert "ts" in transcripts[0]
-    # The frame keeps flowing to the aggregator.
-    assert pushed == [(frame, FrameDirection.DOWNSTREAM)]
+    # Every frame keeps flowing to the aggregator.
+    assert pushed == [
+        (vad_start, FrameDirection.UPSTREAM),
+        (frame, FrameDirection.DOWNSTREAM),
+        (turn_start, FrameDirection.UPSTREAM),
+    ]
+
+
+async def test_user_transcript_observer_drops_utterance_while_wake_asleep():
+    """Dormindo, o STT transcreve, mas o gate da palavra de ativação não abre
+    o turno: nenhum UserStartedSpeakingFrame é transmitido e a fala (ex.
+    "abobrinha 1, 2, 3") não pode aparecer no chat. O segmento encerra com o
+    VAD stop — os pendentes são descartados."""
+
+    from pipeline.bridge import UserTranscriptObserver
+
+    observer = UserTranscriptObserver()
+    sink = _Sink()
+    observer.set_publisher(sink)
+    pushed: list[tuple] = []
+
+    async def fake_push(frame, direction):
+        pushed.append((frame, direction))
+
+    observer.push_frame = fake_push  # type: ignore[method-assign]
+
+    await observer.process_frame(VADUserStartedSpeakingFrame(), FrameDirection.UPSTREAM)
+    await observer.process_frame(
+        TranscriptionFrame(text="abobrinha 1, 2, 3", user_id="user", timestamp="t1"),
+        FrameDirection.DOWNSTREAM,
+    )
+    # Uma segunda transcrição do mesmo segmento (VAD agrupando pausas).
+    await observer.process_frame(
+        TranscriptionFrame(text="que horas são?", user_id="user", timestamp="t2"),
+        FrameDirection.DOWNSTREAM,
+    )
+    await observer.process_frame(VADUserStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
+
+    assert _events(sink, "user_transcript") == []
+    assert len(pushed) == 4  # passthrough integral, nada foi engolido
+
+
+async def test_user_transcript_observer_wake_phrase_publishes_buffered():
+    """Com wake word, a estratégia avalia a transcrição antes de abrir o
+    turno: o broadcast de UserStartedSpeakingFrame chega DEPOIS da
+    transcrição. A fala que casou com a palavra de ativação sai do buffer e
+    publica — as anteriores, de um segmento que não abriu turno, ficam para
+    trás."""
+
+    from pipeline.bridge import UserTranscriptObserver
+
+    observer = UserTranscriptObserver()
+    sink = _Sink()
+    observer.set_publisher(sink)
+    pushed: list[tuple] = []
+
+    async def fake_push(frame, direction):
+        pushed.append((frame, direction))
+
+    observer.push_frame = fake_push  # type: ignore[method-assign]
+
+    await observer.process_frame(VADUserStartedSpeakingFrame(), FrameDirection.UPSTREAM)
+    await observer.process_frame(
+        TranscriptionFrame(text="abobrinha 1, 2, 3", user_id="user", timestamp="t1"),
+        FrameDirection.DOWNSTREAM,
+    )
+    await observer.process_frame(VADUserStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
+    # Novamente: agora a fala casa com "polaris".
+    await observer.process_frame(VADUserStartedSpeakingFrame(), FrameDirection.UPSTREAM)
+    await observer.process_frame(
+        TranscriptionFrame(text="polaris, que horas são?", user_id="user", timestamp="t2"),
+        FrameDirection.DOWNSTREAM,
+    )
+    await observer.process_frame(UserStartedSpeakingFrame(), FrameDirection.UPSTREAM)
+
+    transcripts = _events(sink, "user_transcript")
+    assert [t["text"] for t in transcripts] == ["polaris, que horas são?"]
+    assert len(pushed) == 6
+
+
+async def test_user_transcript_observer_keeps_publishing_after_wake_segment():
+    """A palavra de ativação costuma ser seu próprio segmento de VAD: o turno
+    abre com "Polaris" e o pedido vem num segmento seguinte ("que horas
+    são?"). Os segmentos pós-abertura não podem resetar o turno nem ser
+    descartados no VAD stop — publicam ao vivo, e o turno só fecha com o
+    broadcast de UserStoppedSpeakingFrame."""
+
+    from pipeline.bridge import UserTranscriptObserver
+
+    observer = UserTranscriptObserver()
+    sink = _Sink()
+    observer.set_publisher(sink)
+    pushed: list[tuple] = []
+
+    async def fake_push(frame, direction):
+        pushed.append((frame, direction))
+
+    observer.push_frame = fake_push  # type: ignore[method-assign]
+
+    # Segmento 1: só a palavra de ativação.
+    await observer.process_frame(VADUserStartedSpeakingFrame(), FrameDirection.UPSTREAM)
+    await observer.process_frame(
+        TranscriptionFrame(text="Polaris", user_id="user", timestamp="t1"),
+        FrameDirection.DOWNSTREAM,
+    )
+    await observer.process_frame(UserStartedSpeakingFrame(), FrameDirection.UPSTREAM)
+    # Segmento 2: o pedido — chega com o turno já aberto.
+    await observer.process_frame(VADUserStartedSpeakingFrame(), FrameDirection.UPSTREAM)
+    await observer.process_frame(
+        TranscriptionFrame(text="que horas são?", user_id="user", timestamp="t2"),
+        FrameDirection.DOWNSTREAM,
+    )
+    await observer.process_frame(VADUserStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
+    # Fim do turno.
+    await observer.process_frame(UserStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
+
+    transcripts = _events(sink, "user_transcript")
+    assert [t["text"] for t in transcripts] == ["Polaris", "que horas são?"]
+
+    # Turno fechado: fala seguinte sem ativação é descartada de novo.
+    await observer.process_frame(VADUserStartedSpeakingFrame(), FrameDirection.UPSTREAM)
+    await observer.process_frame(
+        TranscriptionFrame(text="abobrinha 1, 2, 3", user_id="user", timestamp="t3"),
+        FrameDirection.DOWNSTREAM,
+    )
+    await observer.process_frame(VADUserStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
+    assert [t["text"] for t in transcripts] == ["Polaris", "que horas são?"]
+    assert len(pushed) == 10  # passthrough integral
 
 
 async def test_user_transcript_observer_ignores_non_transcription_frames():
@@ -367,6 +501,50 @@ async def test_audio_level_carries_spectrum_of_the_active_side():
     assert event["mid"] > event["bass"]
     assert event["mid"] > event["treble"]
     assert event["level"] == event["output"]
+
+
+async def test_input_chunks_do_not_zero_the_output_during_playback_drain():
+    """Kokoro entrega a sentença num burst de síntese e o TTSStopped zera o
+    lado do output; os chunks do microfone (sempre fluindo) não podem
+    publicar o zero no meio do playback — o traço segura a última forma até o
+    próximo burst de síntese ou o fim do turno."""
+
+    bridge, sink = _make_bridge()
+
+    # Turno real: o UserStartedSpeakingFrame abre o turno (sem ele o
+    # TTSStopped derruba para idle e o side vira o microfone, outro caminho).
+    await _feed(
+        bridge,
+        UserStartedSpeakingFrame(),
+        LLMFullResponseStartFrame(),
+        TTSStartedFrame(),
+        TTSAudioRawFrame(audio=_pcm(), sample_rate=24000, num_channels=1),
+        TTSStoppedFrame(),
+    )
+    live = _events(sink, "audio_level")
+    assert len(live) == 1 and live[-1]["level"] > 0
+    assert any(v > 0 for v in live[-1]["spectrum"])
+    # O TTSStopped zerou o output mas o turno segue ativo (speaking).
+    assert bridge._voice == "speaking"
+
+    # Playback em voo: o microfone segue mandando chunks, mas o lado ativo é
+    # o output (zero desde o TTSStopped) — nenhum evento pode ser publicado.
+    bridge._last_level_ts = 0.0  # sem o throttle, para exercitar o guard
+    for _ in range(6):
+        await _feed(
+            bridge, InputAudioRawFrame(audio=_pcm(), sample_rate=24000, num_channels=1)
+        )
+    assert len(_events(sink, "audio_level")) == 1
+
+    # O burst da sentença seguinte volta a publicar.
+    bridge._last_level_ts = 0.0
+    await _feed(
+        bridge,
+        TTSStartedFrame(),
+        TTSAudioRawFrame(audio=_pcm(), sample_rate=24000, num_channels=1),
+    )
+    levels = _events(sink, "audio_level")
+    assert len(levels) == 2 and levels[-1]["level"] > 0
 
 
 async def test_active_side_follows_the_voice_state():
