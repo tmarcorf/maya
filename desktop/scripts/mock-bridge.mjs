@@ -95,6 +95,10 @@ setInterval(() => {
 
 // ── Conversa roteirizada ───────────────────────────────────────────────────
 
+// O preâmbulo é falado ANTES da ferramenta rodar e a resposta final
+// DEPOIS — mesmo turno: o renderer precisa fatiar a mensagem do agente em
+// dois segmentos para manter a cronologia (texto → ferramenta → texto).
+const PREAMBLE = "Vou verificar isso para você. Um instante.";
 const SCRIPT = [
   { after: 1500, run: () => setVoice("user_speaking") },
   { after: 1800, run: () => setVoice("listening") },
@@ -103,6 +107,7 @@ const SCRIPT = [
     run: () => broadcast({ type: "user_transcript", text: "quantos arquivos tem no projeto?" }),
   },
   { after: 200, run: () => setVoice("thinking") },
+  { after: 300, run: () => streamAgentText(PREAMBLE) },
   {
     after: 900,
     run: () =>
@@ -128,16 +133,18 @@ const SCRIPT = [
       }),
   },
   { after: 400, run: () => setVoice("speaking") },
-  { after: 0, run: () => streamAgentText() },
+  { after: 0, run: () => streamAgentText(REPLY) },
   { after: 4200, run: () => setVoice("idle") },
 ];
 
 const REPLY = "São 1.284 arquivos, sem contar node_modules. A maior parte está em pipeline/ e desktop/src.";
 
 let turn = 0;
+let currentTurnId = "";
 
-function streamAgentText(reply = REPLY) {
-  const turnId = `mock-turn-${++turn}`;
+function streamAgentText(reply = REPLY, turnId = null) {
+  const resolved = turnId ?? currentTurnId ?? `mock-turn-${++turn}`;
+  if (!turnId) currentTurnId = resolved;
   const words = reply.split(" ");
   let index = 0;
   const timer = setInterval(() => {
@@ -157,6 +164,7 @@ function setVoice(voice) {
 
 async function runScript() {
   for (;;) {
+    currentTurnId = ""; // cada ciclo da conversa é um turno novo
     for (const step of SCRIPT) {
       await new Promise((resolve) => setTimeout(resolve, step.after));
       if (wss.clients.size > 0) step.run();

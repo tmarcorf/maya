@@ -46,7 +46,11 @@ export function ChatPanel() {
   };
 
   const last = messages[messages.length - 1];
-  const thinking = voice === "thinking" && !(last && last.role === "agent" && !last.final);
+  // Segmentos selados (fechados por uma ferramenta) não contam como texto
+  // em streaming: com a ferramenta rodando, o "pensando…" reaparece.
+  const thinking =
+    voice === "thinking" &&
+    !(last && last.role === "agent" && !last.final && !last.sealed);
 
   return (
     <section className="flex min-h-0 flex-1 flex-col">

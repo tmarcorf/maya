@@ -43,7 +43,7 @@ export function handleEvent(event: BridgeEvent): void {
       useChatStore.getState().addUserTranscript(event.text, event.ts);
       break;
     case "agent_text":
-      useChatStore.getState().appendAgentDelta(event.turnId, event.delta);
+      useChatStore.getState().appendAgentDelta(event.turnId, event.delta, event.ts);
       break;
     case "agent_text_end":
       useChatStore.getState().endAgentTurn(event.turnId, event.text);

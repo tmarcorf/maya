@@ -38,7 +38,9 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
         ) : (
           <>
             <Markdown>{message.text}</Markdown>
-            {!message.final && <span className="stream-caret" aria-hidden="true" />}
+            {!message.final && !message.sealed && (
+              <span className="stream-caret" aria-hidden="true" />
+            )}
           </>
         )}
       </div>

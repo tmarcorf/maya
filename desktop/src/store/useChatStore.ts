@@ -17,6 +17,13 @@ export interface ChatMessage {
   text: string;
   ts: number;
   final: boolean;
+  /**
+   * Segmento de texto fechado por uma chamada de ferramenta: o turno do
+   * agente continua, mas este trecho já tem posição fixa na linha do tempo
+   * (o texto que chega depois — a resposta final — vai para um segmento
+   * novo, abaixo do card da ferramenta).
+   */
+  sealed?: boolean;
 }
 
 export interface ToolActivity {
@@ -31,11 +38,18 @@ export interface ToolActivity {
 const STORAGE_KEY = "polaris.chat.v1";
 const MAX_MESSAGES = 200;
 
+// Bookkeeping do streaming por turno (não-reativo de propósito): o turno do
+// agente é identificado pelo `turnId` do protocolo; o texto que chega é
+// acumulado no segmento ativo. Quando uma ferramenta roda no meio do turno,
+// o segmento é selado e os deltas seguintes abrem um novo.
+const activeSegments = new Map<string, string>(); // turnId → messageId
+const nextSegment = new Map<string, number>(); // turnId → próximo sufixo
+
 interface ChatState {
   messages: ChatMessage[];
   toolActivities: ToolActivity[];
   addUserTranscript: (text: string, ts: number) => void;
-  appendAgentDelta: (turnId: string, delta: string) => void;
+  appendAgentDelta: (turnId: string, delta: string, ts: number) => void;
   endAgentTurn: (turnId: string, text: string) => void;
   upsertToolActivity: (event: ToolActivityEvent) => void;
   clear: () => void;
@@ -155,41 +169,89 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     persist(get().messages);
   },
 
-  appendAgentDelta: (turnId, delta) => {
+  appendAgentDelta: (turnId, delta, ts) => {
     set((state) => {
-      const existing = state.messages.find((m) => m.id === turnId);
-      if (!existing) {
+      const activeId = activeSegments.get(turnId);
+      if (activeId && state.messages.some((m) => m.id === activeId)) {
         return {
-          messages: [
-            ...state.messages,
-            { id: turnId, role: "agent", text: delta, ts: Date.now(), final: false },
-          ],
+          messages: state.messages.map((m) =>
+            m.id === activeId ? { ...m, text: m.text + delta } : m,
+          ),
         };
       }
+      // Novo segmento: o primeiro herda o turnId; os seguintes ganham
+      // sufixo para não colidir com o segmento selado.
+      const id = state.messages.some((m) => m.id === turnId)
+        ? `${turnId}:${nextSegment.get(turnId) ?? 1}`
+        : turnId;
+      if (id !== turnId) {
+        nextSegment.set(turnId, (nextSegment.get(turnId) ?? 1) + 1);
+      }
+      activeSegments.set(turnId, id);
       return {
-        messages: state.messages.map((m) =>
-          m.id === turnId ? { ...m, text: m.text + delta } : m,
-        ),
+        messages: [
+          ...state.messages,
+          { id, role: "agent", text: delta, ts, final: false },
+        ],
       };
     });
   },
 
   endAgentTurn: (turnId, text) => {
-    set((state) => ({
-      messages: state.messages.map((m) =>
-        m.id === turnId ? { ...m, text, final: true } : m,
-      ),
-    }));
-    persist(get().messages);
+    const activeId = activeSegments.get(turnId);
+    if (activeId) {
+      set((state) => {
+        // `agent_text_end` traz o texto completo do turno (autoritativo),
+        // mas com segmentos selados o trecho anterior já está exibido:
+        // o texto final do segmento ativo é o texto completo menos o
+        // prefixo dos segmentos selados do mesmo turno.
+        const sealedPrefix = state.messages
+          .filter(
+            (m) =>
+              m.role === "agent" &&
+              m.sealed &&
+              (m.id === turnId || m.id.startsWith(`${turnId}:`)),
+          )
+          .map((m) => m.text)
+          .join("");
+        const finalText =
+          sealedPrefix && text.startsWith(sealedPrefix)
+            ? text.slice(sealedPrefix.length)
+            : text;
+        return {
+          messages: state.messages.map((m) =>
+            m.id === activeId ? { ...m, text: finalText, final: true } : m,
+          ),
+        };
+      });
+      activeSegments.delete(turnId);
+      persist(get().messages);
+    }
   },
 
   upsertToolActivity: (event) => {
     set((state) => {
+      // Cronologia: a ferramenta roda no meio do turno — sela o segmento de
+      // texto em andamento para que o texto seguinte (a resposta final)
+      // abra um segmento novo, abaixo do card da ferramenta.
+      let messages = state.messages;
+      const open = messages.filter((m) => m.role === "agent" && !m.final && !m.sealed);
+      if (open.length > 0) {
+        const sealedIds = new Set(open.map((m) => m.id));
+        messages = messages.map((m) =>
+          sealedIds.has(m.id) ? { ...m, sealed: true } : m,
+        );
+        for (const [turnId, messageId] of activeSegments) {
+          if (sealedIds.has(messageId)) activeSegments.delete(turnId);
+        }
+      }
+
       const index = state.toolActivities.findIndex(
         (a) => a.toolCallId && a.toolCallId === event.toolCallId,
       );
       if (index === -1) {
         return {
+          messages,
           toolActivities: [
             ...state.toolActivities,
             {
@@ -216,11 +278,13 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         emoji: event.emoji || next[index].emoji,
         status: event.status,
       };
-      return { toolActivities: next };
+      return { messages, toolActivities: next };
     });
   },
 
   clear: () => {
+    activeSegments.clear();
+    nextSegment.clear();
     set({ messages: [], toolActivities: [] });
     if (typeof window !== "undefined" && window.polaris) {
       void window.polaris.history.clear().catch(() => {
