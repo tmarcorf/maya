@@ -40,8 +40,6 @@ export default function App() {
             <div className="orb-meta eyebrow hidden text-dim/60 md:block">
               Wake {wake.enabled ? wakeStatusLabel(wake.state) : "desligado"}
               {wake.enabled && wake.phrase ? ` — “${wake.phrase}”` : ""}
-              {` · ${session.appSessionId}`}
-              {session.hermesSessionId ? ` · ${session.hermesSessionId}` : ""}
             </div>
           )}
         </div>

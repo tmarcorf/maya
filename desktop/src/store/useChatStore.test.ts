@@ -55,6 +55,15 @@ describe("useChatStore", () => {
     expect(activities[1]).toMatchObject({ toolCallId: "c2", status: "running" });
   });
 
+  it("o comando (label do running) sobrevive ao completed com label vazio", () => {
+    const store = useChatStore.getState();
+    store.upsertToolActivity({ type: "tool_activity", ts: 1, tool: "terminal", label: "date", emoji: "", toolCallId: "c1", status: "running" });
+    store.upsertToolActivity({ type: "tool_activity", ts: 2, tool: "terminal", label: "", emoji: "", toolCallId: "c1", status: "completed" });
+
+    const activities = useChatStore.getState().toolActivities;
+    expect(activities[0]).toMatchObject({ label: "date", status: "completed" });
+  });
+
   it("upsertToolActivity preserva o ts da primeira aparição", () => {
     const store = useChatStore.getState();
     store.upsertToolActivity(toolEvent(10, "c1", "running"));

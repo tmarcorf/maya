@@ -210,8 +210,10 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       next[index] = {
         ...next[index],
         tool: event.tool,
-        label: event.label,
-        emoji: event.emoji,
+        // O comando vem no evento `running`; o `completed` chega com label
+        // vazio e não pode apagá-lo — o primeiro label não-vazio vence.
+        label: event.label || next[index].label,
+        emoji: event.emoji || next[index].emoji,
         status: event.status,
       };
       return { toolActivities: next };
