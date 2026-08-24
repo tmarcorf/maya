@@ -142,6 +142,16 @@ body {
   font-weight: 700;
 }
 
+/* Texto sem espaços (histórico legado colado) ainda quebra de linha em vez
+   de estourar na horizontal: quebra em qualquer ponto quando necessário. */
+.markdown-body,
+.overflow-wrap-anywhere {
+  overflow-wrap: anywhere;
+}
+.markdown-body {
+  min-width: 0;
+}
+
 /* Blocos de código e tabelas GFM dentro do markdown. */
 .markdown-body pre {
   margin: 0.5rem 0;

@@ -15,6 +15,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Composer } from "@/features/chat/Composer";
 import { MessageBubble } from "@/features/chat/MessageBubble";
 import { ToolActivityCard } from "@/features/chat/ToolActivityCard";
+import { OrbGlyph } from "@/features/orb/OrbGlyph";
 import { useBridgeStore } from "@/store/useBridgeStore";
 import { selectTimeline, useChatStore } from "@/store/useChatStore";
 
@@ -79,7 +80,7 @@ export function ChatPanel() {
             )}
             {thinking && (
               <div className="flex items-center gap-1.5 self-start">
-                <span className="text-fbc" aria-hidden="true">▽</span>
+                <OrbGlyph />
                 <span className="eyebrow text-dim">Polaris · pensando…</span>
               </div>
             )}

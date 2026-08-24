@@ -278,6 +278,25 @@ class VoiceBridge(FrameProcessor):
             ),
         }
 
+    @staticmethod
+    def _restore_delta_space(accumulated: str, delta: str) -> str:
+        """Restore the space pipecat strips between text deltas.
+
+        The TTS aggregator emits each sentence with ``strip(" ")`` on both
+        edges, so "De nada." + "Estou por aqui" arrive as two deltas with
+        the space between them missing; when the gateway streams
+        space-less words, the same gluing happens word by word. In a clean
+        stream two non-whitespace characters never collide at a delta
+        boundary, so re-inserting the space only ever fires where the
+        space was actually lost.
+        """
+        if not accumulated or not delta:
+            return delta
+        prev, nxt = accumulated[-1], delta[0]
+        if prev.isspace() or nxt.isspace():
+            return delta
+        return " " + delta
+
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
 
@@ -309,9 +328,10 @@ class VoiceBridge(FrameProcessor):
             # observers/tests.
             if self._turn_id is None:
                 self._turn_id = str(uuid.uuid4())
-            self._turn_text += frame.text
+            delta = self._restore_delta_space(self._turn_text, frame.text)
+            self._turn_text += delta
             await self._publish(
-                {"type": "agent_text", "turnId": self._turn_id, "delta": frame.text}
+                {"type": "agent_text", "turnId": self._turn_id, "delta": delta}
             )
         elif isinstance(frame, TTSTextFrame):
             # The TTS service re-emits each spoken sentence as a
@@ -319,9 +339,10 @@ class VoiceBridge(FrameProcessor):
             # (Not emitted by the ElevenLabs provider: push_text_frames=False.)
             if self._turn_id is None:
                 self._turn_id = str(uuid.uuid4())
-            self._turn_text += frame.text
+            delta = self._restore_delta_space(self._turn_text, frame.text)
+            self._turn_text += delta
             await self._publish(
-                {"type": "agent_text", "turnId": self._turn_id, "delta": frame.text}
+                {"type": "agent_text", "turnId": self._turn_id, "delta": delta}
             )
         elif isinstance(frame, LLMFullResponseEndFrame):
             self._user_turn_active = False

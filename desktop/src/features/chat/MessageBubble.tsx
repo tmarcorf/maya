@@ -2,14 +2,15 @@
  * Bolha de mensagem.
  *
  * Usuário: à direita, texto puro sobre painel.
- * Polaris: à esquerda, marcada pelo glifo da pirâmide invertida em vermelho
- * FBC — a assinatura do painel. Markdown renderizado; durante o streaming,
- * um caret pisca no fim.
+ * Polaris: à esquerda, marcada pelo glifo do orb (paleta ativa) — a
+ * assinatura do painel. Markdown renderizado; durante o streaming, um caret
+ * pisca no fim.
  */
 
 import { memo } from "react";
 
 import { Markdown } from "@/features/chat/Markdown";
+import { OrbGlyph } from "@/features/orb/OrbGlyph";
 import type { ChatMessage } from "@/store/useChatStore";
 
 const timeFormat = new Intl.DateTimeFormat("pt-BR", {
@@ -23,7 +24,7 @@ export const MessageBubble = memo(function MessageBubble({ message }: { message:
   return (
     <div className={isUser ? "flex flex-col items-end" : "flex flex-col items-start"}>
       <div className="mb-1 flex items-baseline gap-1.5">
-        {!isUser && <span className="text-fbc" aria-hidden="true">▽</span>}
+        {!isUser && <OrbGlyph className="h-3.5 w-3.5 self-center" />}
         <span className="eyebrow text-dim">
           {isUser ? "Você" : "Polaris"} · {timeFormat.format(message.ts)}
         </span>
@@ -36,7 +37,7 @@ export const MessageBubble = memo(function MessageBubble({ message }: { message:
         }
       >
         {isUser ? (
-          <span className="whitespace-pre-wrap">{message.text}</span>
+          <span className="whitespace-pre-wrap overflow-wrap-anywhere">{message.text}</span>
         ) : (
           <>
             <Markdown>{message.text}</Markdown>
