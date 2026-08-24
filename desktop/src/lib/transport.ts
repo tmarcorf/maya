@@ -42,7 +42,7 @@ export class IpcTransport implements Transport {
   private offEvent: (() => void) | null = null;
   private offConnection: (() => void) | null = null;
 
-  constructor(private readonly api: NonNullable<typeof window.polaris>) {}
+  constructor(private readonly api: NonNullable<typeof window.maya>) {}
 
   connect(): void {
     // Idempotente: StrictMode remonta efeitos no dev — reconectar não

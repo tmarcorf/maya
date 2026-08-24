@@ -62,7 +62,7 @@ export default function App() {
         <div className="absolute inset-0">
           <OrbStage />
         </div>
-        {/* Traço de áudio da Polaris, sob o orb — visível só quando ela fala. */}
+        {/* Traço de áudio da Maya, sob o orb — visível só quando ela fala. */}
         <OscilloscopeStage />
         <div className="orb-hud">
           {session?.appSessionId && (

@@ -1,5 +1,5 @@
 /**
- * Mock da bridge Polaris — desenvolvimento do renderer sem backend.
+ * Mock da bridge Maya — desenvolvimento do renderer sem backend.
  *
  * Implementa o mesmo protocolo de `pipeline/bridge.py`: handshake, estado
  * inicial e os comandos `get_state`, `set_wake_word_enabled`, `ping` e
@@ -22,12 +22,12 @@ const now = () => Date.now();
 
 const state = {
   voice: "idle",
-  wake: { enabled: true, state: "asleep", phrase: "E aí, Polaris" },
+  wake: { enabled: true, state: "asleep", phrase: "E aí, Maya" },
   session: { appSessionId: "voice-session-mock", hermesSessionId: "hermes-session-mock" },
 };
 
 const wss = new WebSocketServer({ port: PORT });
-console.log(`[mock] Polaris bridge em ws://127.0.0.1:${PORT}`);
+console.log(`[mock] Maya bridge em ws://127.0.0.1:${PORT}`);
 
 function send(socket, event) {
   if (socket.readyState === WebSocket.OPEN) {
@@ -212,7 +212,7 @@ wss.on("connection", (socket) => {
       setVoice("thinking");
       setTimeout(() => setVoice("speaking"), 700);
       setTimeout(() => {
-        streamAgentText(`Recebi sua mensagem: "${text}". Aqui é a Polaris respondendo pela caixa de texto!`);
+        streamAgentText(`Recebi sua mensagem: "${text}". Aqui é a Maya respondendo pela caixa de texto!`);
       }, 900);
       setTimeout(() => setVoice("idle"), 4200);
     } else {

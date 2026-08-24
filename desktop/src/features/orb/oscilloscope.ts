@@ -3,7 +3,7 @@
  *
  * O React só monta o canvas; todo o resto vive fora da árvore, como no
  * `Visualizer`. O traço é dirigido pelo espectro do lado ativo da bridge
- * (quando a Polaris fala, o lado ativo é o output — o espectro do TTS), e
+ * (quando a Maya fala, o lado ativo é o output — o espectro do TTS), e
  * só desenha no estado `speaking`: fora dele, decai para a linha plana em
  * vez de congelar.
  *
@@ -196,7 +196,7 @@ export class Oscilloscope {
     if (!this.running && this.targetLevel > 0.02) this.start();
   }
 
-  /** Só desenha quando a Polaris está falando; fora disso decai para plano. */
+  /** Só desenha quando a Maya está falando; fora disso decai para plano. */
   setActive(active: boolean): void {
     this.active = active;
     if (active) this.start();

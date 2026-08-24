@@ -1,6 +1,6 @@
-# Polaris
+# Maya
 
-Assistente de voz local controlado por **Pipecat** (voz, STT, TTS, streaming) e **Hermes Agent** (cérebro agêntico: LLM, tools, terminal, browser, memória). Polaris é a ponte entre os dois — você fala, o Hermes pensa e executa, e Polaris responde em voz, **sem esperar a resposta completa para começar a falar**.
+Assistente de voz local controlado por **Pipecat** (voz, STT, TTS, streaming) e **Hermes Agent** (cérebro agêntico: LLM, tools, terminal, browser, memória). Maya é a ponte entre os dois — você fala, o Hermes pensa e executa, e Maya responde em voz, **sem esperar a resposta completa para começar a falar**.
 
 ## Arquitetura
 
@@ -21,7 +21,7 @@ Dois processos, uma divisão clara de responsabilidades:
 - **Pipecat** cuida de: áudio, VAD, turn detection, STT, pipeline assíncrono, streaming, TTS, interrupções e métricas.
 - **Hermes** cuida de: raciocínio, LLM, execução de ferramentas, terminal, browser, memória, skills e subagentes.
 
-O Pipecat não duplica nada do Hermes — Polaris é essencialmente a ponte entre voz e agente.
+O Pipecat não duplica nada do Hermes — Maya é essencialmente a ponte entre voz e agente.
 
 ### Streaming de ponta a ponta
 
@@ -33,11 +33,11 @@ A conversa é mantida **exclusivamente pelo Hermes**: a primeira requisição n�
 
 ### Eventos de ferramenta
 
-O Hermes emite `event: hermes.tool.progress` durante execuções de ferramenta. Polaris **registra esses eventos no log** (observabilidade) e **nunca** os envia ao TTS — você ouve apenas a resposta final do agente.
+O Hermes emite `event: hermes.tool.progress` durante execuções de ferramenta. Maya **registra esses eventos no log** (observabilidade) e **nunca** os envia ao TTS — você ouve apenas a resposta final do agente.
 
 ### Interrupção (barge-in)
 
-Se você começar a falar enquanto o Polaris responde, o VAD do Pipecat dispara um `InterruptionFrame`, a inferência em andamento é cancelada e a conexão HTTP com o Hermes é fechada — o que faz o Hermes cancelar o turno agentivo. A nova fala então é processada normalmente.
+Se você começar a falar enquanto o Maya responde, o VAD do Pipecat dispara um `InterruptionFrame`, a inferência em andamento é cancelada e a conexão HTTP com o Hermes é fechada — o que faz o Hermes cancelar o turno agentivo. A nova fala então é processada normalmente.
 
 ## Pré-requisitos
 
@@ -54,7 +54,7 @@ Se você começar a falar enquanto o Polaris responde, o VAD do Pipecat dispara 
 ## Instalação
 
 ```bash
-cd polaris
+cd maya
 uv pip install -r requirements.txt      # cria/abastece o venv com todas as deps
                                         # (equivalente ao uv sync; inclui as libs CUDA)
 cp .env.example .env                    # depois edite HERMES_API_KEY
@@ -76,7 +76,7 @@ API_SERVER_ENABLED=true
 API_SERVER_KEY=uma-chave-local-qualquer
 ```
 
-O gateway pode ser iniciado manualmente (o API server sobe junto) ou automaticamente pelo `./polaris.sh`:
+O gateway pode ser iniciado manualmente (o API server sobe junto) ou automaticamente pelo `./maya.sh`:
 
 ```bash
 hermes gateway
@@ -94,12 +94,12 @@ Use a mesma `API_SERVER_KEY` no `HERMES_API_KEY` do `.env` deste projeto. Não e
 ## Execução
 
 ```bash
-./polaris.sh
+./maya.sh
 ```
 
-O `polaris.sh` faz tudo: sobe o `hermes gateway` (se ainda não estiver no ar — reutiliza um já rodando), espera o health check responder, ajusta o `LD_LIBRARY_PATH` para as libs CUDA instaladas via pip (o ctranslate2 do Whisper precisa delas quando `STT_DEVICE=cuda`) e então roda o agente. Ctrl+C encerra tudo — inclusive o gateway que ele subiu. Com `STT_DEVICE=cpu` você pode rodar `uv run python app.py` diretamente (com o Hermes já no ar).
+O `maya.sh` faz tudo: sobe o `hermes gateway` (se ainda não estiver no ar — reutiliza um já rodando), espera o health check responder, ajusta o `LD_LIBRARY_PATH` para as libs CUDA instaladas via pip (o ctranslate2 do Whisper precisa delas quando `STT_DEVICE=cuda`) e então roda o agente. Ctrl+C encerra tudo — inclusive o gateway que ele subiu. Com `STT_DEVICE=cpu` você pode rodar `uv run python app.py` diretamente (com o Hermes já no ar).
 
-Fale no microfone. O Polaris detecta o fim do turno, transcreve, envia ao Hermes e começa a responder enquanto a resposta ainda está sendo gerada. Ctrl+C para encerrar.
+Fale no microfone. O Maya detecta o fim do turno, transcreve, envia ao Hermes e começa a responder enquanto a resposta ainda está sendo gerada. Ctrl+C para encerrar.
 
 Para usar uma voz da ElevenLabs em vez do Kokoro, configure no `.env`:
 
@@ -111,9 +111,9 @@ ELEVENLABS_VOICE_ID=...  # id da voz (premade ou clonada)
 
 ## Desktop companion (Electron)
 
-Além do terminal, o Polaris expõe uma **bridge WebSocket local** (`ws://127.0.0.1:8686`, configurável via `BRIDGE_WS_PORT`) que espelha o estado da conversa para o app desktop em `desktop/` (orb 3D, chat, toggle da wake word). Ela publica eventos (`hello`, `state`, `user_transcript`, `agent_text`/`agent_text_end`, `tool_activity`, `interruption`, `audio_level`, `wake_state`) e aceita comandos com ack: `get_state`, `set_wake_word_enabled`, `ping`. Um client por vez.
+Além do terminal, o Maya expõe uma **bridge WebSocket local** (`ws://127.0.0.1:8686`, configurável via `BRIDGE_WS_PORT`) que espelha o estado da conversa para o app desktop em `desktop/` (orb 3D, chat, toggle da wake word). Ela publica eventos (`hello`, `state`, `user_transcript`, `agent_text`/`agent_text_end`, `tool_activity`, `interruption`, `audio_level`, `wake_state`) e aceita comandos com ack: `get_state`, `set_wake_word_enabled`, `ping`. Um client por vez.
 
-Com `./polaris.sh` rodando, você pode inspecionar a bridge com:
+Com `./maya.sh` rodando, você pode inspecionar a bridge com:
 
 ```bash
 websocat ws://127.0.0.1:8686
@@ -158,15 +158,15 @@ Opções avançadas: `QWEN3_ATTN_IMPLEMENTATION` (vazio = sdpa; ou `flash_attent
 
 ## Wake word
 
-O Polaris pode ficar "dormindo" até ouvir uma frase de ativação (detectada na transcrição do Whisper — nenhum modelo extra):
+O Maya pode ficar "dormindo" até ouvir uma frase de ativação (detectada na transcrição do Whisper — nenhum modelo extra):
 
 ```env
 WAKE_WORD_ENABLED=true
-WAKE_WORD_PHRASES=E aí, Polaris;Ei, Polaris;Polaris, tá aí?   # lista separada por ';'
+WAKE_WORD_PHRASES=E aí, Maya;Ei, Maya;Maya, tá aí?   # lista separada por ';'
 WAKE_WORD_TIMEOUT=10     # segundos de inatividade até voltar a dormir
 ```
 
-Comportamento: enquanto dorme, nada vai ao Hermes (as falas são descartadas); ao ouvir uma das frases, o Polaris acorda e a conversa flui normalmente; após `WAKE_WORD_TIMEOUT` segundos sem fala, volta a dormir. O casamento é tolerante: ignora maiúsculas, pontuação e acentos (o Whisper costuma transcrever "polares" em vez de "Polaris" e omitir acentos — ambas as variantes são aceitas automaticamente).
+Comportamento: enquanto dorme, nada vai ao Hermes (as falas são descartadas); ao ouvir uma das frases, o Maya acorda e a conversa flui normalmente; após `WAKE_WORD_TIMEOUT` segundos sem fala, volta a dormir. O casamento é tolerante: ignora maiúsculas, pontuação e acentos (o Whisper costuma transcrever "maia" em vez de "Maya" e omitir acentos — ambas as variantes são aceitas automaticamente).
 
 ## Testes
 
@@ -186,7 +186,7 @@ A suíte cobre: configuração, criação do pipeline, parsing SSE, conversão d
 | Sem captura de áudio | Liste dispositivos e use `AUDIO_IN_DEVICE`/`AUDIO_OUT_DEVICE` (índices PyAudio) |
 | Erro ao instalar (`portaudio.h`) | `sudo apt-get install -y portaudio19-dev` e rode `uv sync` de novo |
 | Download do modelo Whisper lento | O primeiro turno baixa o modelo; use `STT_MODEL=base` para máquinas modestas |
-| `Library libcublas.so.12 is not found` | Rode via `./polaris.sh` (expõe as libs CUDA do pip via `LD_LIBRARY_PATH`) ou use `STT_DEVICE=cpu` |
+| `Library libcublas.so.12 is not found` | Rode via `./maya.sh` (expõe as libs CUDA do pip via `LD_LIBRARY_PATH`) ou use `STT_DEVICE=cpu` |
 | Sem áudio do Kokoro | Confira `~/.cache/pipecat/kokoro-onnx/` (modelo + vozes); teste `TTS_VOICE=pm_alex` |
 | Sem áudio do ElevenLabs (log mostra erro de watchdog do TTS) | Vozes **library** (ex.: Fernanda) exigem plano pago: a API devolve `402 paid_plan_required` no free. No free só funcionam vozes **premade** via API — teste com `curl -X POST https://api.elevenlabs.io/v1/text-to-speech/{voice}?model_id=eleven_flash_v2_5 -H "xi-api-key: $ELEVENLABS_API_KEY" -H "Content-Type: application/json" -d '{"text":"oi"}'` |
 | Sem áudio do Qwen3 | Confira `nvidia-smi` (GPU visível?) e o log de carregamento "Loading Qwen3-TTS model..."; o download do modelo (~1,5–2 GB) só acontece na primeira execução, para `~/.cache/huggingface` — máquina offline falha no startup |
@@ -194,7 +194,7 @@ A suíte cobre: configuração, criação do pipeline, parsing SSE, conversão d
 | `CUDA out of memory` do Qwen3 | Reduza `QWEN3_MAX_NEW_TOKENS` (ex.: 2048) ou use `QWEN3_DTYPE=float16` |
 | Primeira fala do Qwen3 demorada | Esperado: o modelo carrega no startup e a síntese em GPU de consumo é mais lenta que tempo real (RTF > 1) — para latência mínima use ElevenLabs |
 | Latência alta | `STT_MODEL=base` (ou `tiny`), `STT_COMPUTE_TYPE=int8`, e menos tempo de silêncio no VAD |
-| Não acorda com a wake word | Confira `WAKE_WORD_ENABLED=true` e as frases em `WAKE_WORD_PHRASES` (separadas por `;`); pontuação, acentos e as grafias "Polaris"/"Polares" já são normalizados automaticamente — se mesmo assim não acordar, rode com `LOG_LEVEL=DEBUG` e veja as transcrições do Whisper (`STT`/`wake phrase detected`) para conferir como ele está transcrevendo a frase |
+| Não acorda com a wake word | Confira `WAKE_WORD_ENABLED=true` e as frases em `WAKE_WORD_PHRASES` (separadas por `;`); pontuação, acentos e as grafias "Maya"/"Maia" já são normalizados automaticamente — se mesmo assim não acordar, rode com `LOG_LEVEL=DEBUG` e veja as transcrições do Whisper (`STT`/`wake phrase detected`) para conferir como ele está transcrevendo a frase |
 | Respostas truncadas/interrompidas | Confira microfone (o VAD pode estar interpretando ruído como barge-in) |
 
 ## Roadmap

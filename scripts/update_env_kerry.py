@@ -1,4 +1,4 @@
-"""Update Polaris .env with the frozen Kerry Condon Qwen3-TTS setup.
+"""Update Maya .env with the frozen Kerry Condon Qwen3-TTS setup.
 
 Preserves all other lines (including secrets) verbatim. Prints only the
 names of changed keys, never values.
@@ -6,7 +6,7 @@ names of changed keys, never values.
 import re
 from pathlib import Path
 
-ENV = Path("/home/tmarcorf/Documentos/dev/polaris/.env")
+ENV = Path("/home/tmarcorf/Documentos/dev/maya/.env")
 
 # key -> new value ("" means empty value, i.e. timbre-only mode)
 UPDATES = {

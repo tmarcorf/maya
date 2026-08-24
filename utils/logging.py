@@ -1,4 +1,4 @@
-"""Structured logging and latency metrics for the Polaris voice agent.
+"""Structured logging and latency metrics for the Maya voice agent.
 
 Observability requirements come from spec §16: log lifecycle events (STT,
 Hermes, TTS, interruption, errors) and emit latency metrics (STT latency,

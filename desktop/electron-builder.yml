@@ -1,5 +1,5 @@
-appId: com.polaris.desktop
-productName: Polaris
+appId: com.maya.desktop
+productName: Maya
 copyright: "© 2026 tmarcorf"
 
 directories:
@@ -24,7 +24,7 @@ linux:
   category: Utility
   icon: resources/icon.png
   maintainer: tmarcorf
-  synopsis: Companion desktop do agente de voz Polaris
+  synopsis: Companion desktop do agente de voz Maya
   description: >
     Orb 3D reativo aos estados de voz, chat espelhando a conversa e
-    toggle da wake word — a camada de apresentação do Polaris.
+    toggle da wake word — a camada de apresentação do Maya.

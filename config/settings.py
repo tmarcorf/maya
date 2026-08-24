@@ -1,4 +1,4 @@
-"""Central configuration for the Polaris voice agent.
+"""Central configuration for the Maya voice agent.
 
 Loads values from environment variables / `.env` (via python-dotenv) and
 exposes a single immutable `Settings` object. No credentials are hardcoded
@@ -36,7 +36,7 @@ SUPPORTED_TTS_PROVIDERS = ("kokoro", "elevenlabs", "qwen3")
 DEFAULT_WAKE_WORD_ENABLED = False
 DEFAULT_WAKE_WORD_TIMEOUT = 10.0
 # Semicolon-separated (commas appear inside the phrases themselves).
-DEFAULT_WAKE_WORD_PHRASES = "E aí, Polaris;Ei, Polaris;Polaris, tá aí?"
+DEFAULT_WAKE_WORD_PHRASES = "E aí, Maya;Ei, Maya;Maya, tá aí?"
 # Local WebSocket the desktop app (Electron) connects to for live events.
 DEFAULT_BRIDGE_WS_PORT = 8686
 DEFAULT_LOG_LEVEL = "INFO"
@@ -205,7 +205,7 @@ def load_settings() -> Settings:
     if wake_word_enabled and not wake_word_phrases:
         raise ValueError(
             "WAKE_WORD_PHRASES is empty. It is required when WAKE_WORD_ENABLED=true "
-            "(semicolon-separated list, e.g. 'E aí, Polaris;Ei, Polaris')."
+            "(semicolon-separated list, e.g. 'E aí, Maya;Ei, Maya')."
         )
     try:
         wake_word_timeout = float(

@@ -14,7 +14,9 @@ export interface OrbVisualSettings extends OrbSettings {
   palette: PaletteKey;
 }
 
-const STORAGE_KEY = "polaris.orb-settings.v1";
+const STORAGE_KEY = "maya.orb-settings.v1";
+// Chave antiga (Polaris): só para a migração única de nomes.
+const LEGACY_STORAGE_KEY = "polaris.orb-settings.v1";
 
 export const ORB_SETTINGS_DEFAULTS: OrbVisualSettings = {
   turbulence: 1,
@@ -51,9 +53,24 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+/** Migração única de nomes: copia o que houver na chave antiga (Polaris). */
+function migrateStorageKey(): void {
+  try {
+    if (localStorage.getItem(STORAGE_KEY) !== null) return;
+    const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (legacy !== null) {
+      localStorage.setItem(STORAGE_KEY, legacy);
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+    }
+  } catch {
+    // Storage bloqueado/quota: sem migração, segue com os padrões.
+  }
+}
+
 export function loadOrbSettings(): OrbVisualSettings {
   const settings = { ...ORB_SETTINGS_DEFAULTS };
   if (typeof localStorage === "undefined") return settings;
+  migrateStorageKey();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return settings;

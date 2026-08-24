@@ -1,11 +1,11 @@
 /**
- * Adaptador entre a bridge da Polaris e o motor do orb.
+ * Adaptador entre a bridge da Maya e o motor do orb.
  *
  * O protótipo em `orb/` lia um `AnalyserNode` do Web Audio. Aqui a análise
  * acontece no backend, sobre o mesmo PCM que a pipeline já processa: o
  * microfone do usuário e o áudio do TTS. Isso evita disputar o microfone com
  * o Python, funciona em qualquer plataforma e — o principal — faz o orb
- * reagir tanto à voz do usuário quanto à voz da Polaris.
+ * reagir tanto à voz do usuário quanto à voz da Maya.
  *
  * A suavização, normalização por pico e detecção de batida continuam aqui,
  * do lado do cliente, exatamente como no protótipo.
@@ -18,10 +18,10 @@ import { SPECTRUM_BINS } from "./types";
 import type { AudioFrame } from "./types";
 
 /**
- * `pulse` — Polaris falando: o pulso do orb é o áudio real do TTS, com
+ * `pulse` — Maya falando: o pulso do orb é o áudio real do TTS, com
  * ganho acima do modo ambiente para ler como reação à fala dela.
  * `live` — alguém está falando, use o áudio real.
- * `ambient` — Polaris pensando: não há áudio, mas o orb não pode morrer.
+ * `ambient` — Maya pensando: não há áudio, mas o orb não pode morrer.
  * `rest` — ocioso: decai para o repouso.
  */
 export type AudioMood = "pulse" | "live" | "ambient" | "rest";
@@ -57,7 +57,7 @@ export class BridgeAudioSource {
   read(dt: number): AudioFrame {
     this.clock += dt;
 
-    // Polaris falando: o gate é o estado de voz, não a frescura do áudio —
+    // Maya falando: o gate é o estado de voz, não a frescura do áudio —
     // entre sentenças a bridge segura o último nível publicado (o zero
     // arrancaria o pulso no meio da fala), então o staleness não vale aqui.
     if (this.mood === "pulse") return this.pulse(dt);
@@ -71,7 +71,7 @@ export class BridgeAudioSource {
   }
 
   /**
-   * Polaris falando: o mesmo drive do `live`, com ganho acima do modo
+   * Maya falando: o mesmo drive do `live`, com ganho acima do modo
    * ambiente — o orb lê como reação à fala dela, não como a respiração
    * sintética do "pensando…". O nível segue a sílaba (ataque rápido do
    * envelope) e, quando ela para, o estado de voz volta a `rest` e o pulso
@@ -137,7 +137,7 @@ export class BridgeAudioSource {
 
   /**
    * Pulsação sintética para quando não há áudio nenhum mas o orb precisa
-   * mostrar que algo acontece — a Polaris pensando entre a fala e a resposta.
+   * mostrar que algo acontece — a Maya pensando entre a fala e a resposta.
    */
   private synthesize(dt: number, amplitude: number): AudioFrame {
     const t = this.clock;

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Polaris — sobe o Hermes gateway (se ainda não estiver no ar) e o agente de voz.
+# Maya — sobe o Hermes gateway (se ainda não estiver no ar) e o agente de voz.
 # Também expõe as libs CUDA (instaladas via pip em site-packages/nvidia):
 # sem isso, o ctranslate2 não acha libcublas.so.12 quando STT_DEVICE=cuda.
 # O LD_LIBRARY_PATH precisa estar setado ANTES do Python iniciar.
@@ -10,7 +10,7 @@ cd "$(dirname "$0")"
 HERMES_BASE_URL=$(grep -E '^HERMES_BASE_URL=' .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '[:space:]' || true)
 HERMES_BASE_URL=${HERMES_BASE_URL:-http://127.0.0.1:8642/v1}
 HERMES_HEALTH_URL="${HERMES_BASE_URL%/}/health"
-HERMES_LOG="${TMPDIR:-/tmp}/polaris-hermes.log"
+HERMES_LOG="${TMPDIR:-/tmp}/maya-hermes.log"
 
 # 1. Hermes gateway — reutiliza um que já esteja no ar.
 if ! curl -fsS --max-time 2 "$HERMES_HEALTH_URL" >/dev/null 2>&1; then

@@ -447,7 +447,7 @@ class VoiceBridge(FrameProcessor):
         self._last_level_ts = now
 
         side = self._active_side()
-        # Enquanto a Polaris fala, os chunks do microfone continuam chegando
+        # Enquanto a Maya fala, os chunks do microfone continuam chegando
         # e pedem publicação a cada LEVEL_INTERVAL_SECS. O TTSStopped (fim da
         # síntese da sentença) zera o nível e a janela do output — mas o
         # playback ainda está em voo por segundos. Publicar o zero arrancaria
@@ -515,7 +515,7 @@ class UserTranscriptObserver(FrameProcessor):
     arrives after the wake phrase segment's transcription. Segments that end
     without a turn were never processed and are dropped. Once the turn is
     open the VAD segment boundaries no longer matter — the user may keep
-    speaking ("Polaris" alone, then the request in a new segment), so later
+    speaking ("Maya" alone, then the request in a new segment), so later
     segments publish live instead of re-buffering. With the wake word off the
     broadcast arrives at VAD start, so the transcriptions publish live, as
     before.

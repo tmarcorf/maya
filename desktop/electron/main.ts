@@ -46,7 +46,7 @@ function createMainWindow(): void {
     height: 820,
     minWidth: 640,
     minHeight: 420,
-    title: "Polaris — voz",
+    title: "Maya — voz",
     backgroundColor: "#101113",
     show: false,
     autoHideMenuBar: true,

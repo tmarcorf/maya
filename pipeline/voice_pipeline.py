@@ -1,4 +1,4 @@
-"""Voice pipeline for Polaris.
+"""Voice pipeline for Maya.
 
 Order mirrors the official Pipecat local-agent example (spec §13), with the
 desktop bridge observers inserted:
@@ -88,15 +88,15 @@ def _expand_wake_phrases(phrases: list[str]) -> list[str]:
     required literally, while Whisper often drops them ("ta" for "tá").
     Each phrase is therefore normalized (punctuation removed, lowercased)
     and, when it has accents, an accent-stripped variant is added too. The
-    polaris↔polares expansion covers Whisper's frequent mishearing of the
+    maya↔maia expansion covers Whisper's frequent mishearing of the
     assistant's name. Order is kept and duplicates are dropped.
     """
     expanded: list[str] = []
     for phrase in phrases:
         for candidate in (
             phrase,
-            re.sub(r"polaris", "polares", phrase, flags=re.IGNORECASE),
-            re.sub(r"polares", "polaris", phrase, flags=re.IGNORECASE),
+            re.sub(r"maya", "maia", phrase, flags=re.IGNORECASE),
+            re.sub(r"maia", "maya", phrase, flags=re.IGNORECASE),
         ):
             for variant in (
                 _normalize_wake_phrase(candidate),
@@ -185,7 +185,7 @@ def build_services(
     context=None,
     session_manager=None,
 ):
-    """Instantiate the Polaris services.
+    """Instantiate the Maya services.
 
     Every component can be injected so tests can build the pipeline with
     fakes instead of loading Whisper/Kokoro models.
@@ -302,7 +302,7 @@ def build_pipeline(
 
         @strategy.event_handler("on_wake_phrase_timeout")
         async def _on_wake_phrase_timeout(_strategy):
-            logger.info("Wake phrase timeout — Polaris voltou a dormir.")
+            logger.info("Wake phrase timeout — Maya voltou a dormir.")
 
         user_params = LLMUserAggregatorParams(
             vad_analyzer=vad_analyzer,
@@ -335,7 +335,7 @@ async def run_voice_agent(
     context=None,
     session_manager=None,
 ) -> None:
-    """Build the pipeline and run Polaris until shutdown."""
+    """Build the pipeline and run Maya until shutdown."""
     if any(component is None for component in (transport, stt, llm, tts, context)):
         transport, stt, llm, tts, context, session_manager = build_services(
             settings,
@@ -370,7 +370,7 @@ async def run_voice_agent(
     worker = PipelineWorker(
         pipeline,
         params=PipelineParams(enable_metrics=True, enable_usage_metrics=True),
-        # Never tear the agent down after silence — Polaris stays listening.
+        # Never tear the agent down after silence — Maya stays listening.
         idle_timeout_secs=None,
         conversation_id=settings.hermes_app_session_id,
     )
@@ -398,7 +398,7 @@ async def run_voice_agent(
     await bridge_server.start()
     try:
         logger.info(
-            f"Polaris is listening (app session {settings.hermes_app_session_id}, "
+            f"Maya is listening (app session {settings.hermes_app_session_id}, "
             f"Hermes at {settings.hermes_base_url}). Press Ctrl+C to stop."
         )
         await runner.run()

@@ -1,4 +1,4 @@
-"""Custom control frames for the Polaris pipeline."""
+"""Custom control frames for the Maya pipeline."""
 
 from __future__ import annotations
 

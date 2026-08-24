@@ -22,7 +22,7 @@ export interface BridgeSnapshot {
   wake: WakeInfo;
 }
 
-export interface PolarisBridgeApi {
+export interface MayaBridgeApi {
   onBridgeEvent(callback: (event: BridgeEvent) => void): () => void;
   onConnectionChange(callback: (status: ConnectionStatus) => void): () => void;
   sendCommand(command: Omit<Command, "id">): Promise<AckEvent>;
@@ -35,7 +35,7 @@ export interface PolarisBridgeApi {
   };
 }
 
-const api: PolarisBridgeApi = {
+const api: MayaBridgeApi = {
   onBridgeEvent(callback) {
     const listener = (_event: unknown, payload: BridgeEvent) => callback(payload);
     ipcRenderer.on("bridge:event", listener);
@@ -63,4 +63,4 @@ const api: PolarisBridgeApi = {
   },
 };
 
-contextBridge.exposeInMainWorld("polaris", api);
+contextBridge.exposeInMainWorld("maya", api);

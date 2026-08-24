@@ -45,7 +45,7 @@ export function createTray(deps: TrayDeps): Tray {
     const meta = STATE_META[voice];
     const wake = bridge?.wake ?? { enabled: false, state: "disabled", phrase: null };
 
-    tray.setToolTip(`Polaris — ${meta.label.toLowerCase()}`);
+    tray.setToolTip(`Maya — ${meta.label.toLowerCase()}`);
     tray.setContextMenu(
       Menu.buildFromTemplate([
         {

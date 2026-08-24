@@ -1,9 +1,9 @@
 {
-  "name": "polaris-desktop",
-  "productName": "Polaris",
+  "name": "maya-desktop",
+  "productName": "Maya",
   "version": "0.1.0",
   "private": true,
-  "description": "Companion desktop do agente de voz Polaris (orb 3D + chat + wake word)",
+  "description": "Companion desktop do agente de voz Maya (orb 3D + chat + wake word)",
   "author": "tmarcorf",
   "homepage": "https://github.com/tmarcorf/polaris",
   "main": "dist-electron/electron/main.js",

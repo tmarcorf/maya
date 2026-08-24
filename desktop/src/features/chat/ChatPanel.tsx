@@ -2,7 +2,7 @@
  * Painel da conversa — espelho da sessão de voz.
  *
  * Mensagens e chamadas de ferramenta compartilham uma única linha do tempo
- * ordenada por `ts`, então dá para ver o que a Polaris executou no ponto exato
+ * ordenada por `ts`, então dá para ver o que a Maya executou no ponto exato
  * do diálogo em que aconteceu.
  *
  * Auto-scroll com pin no rodapé: se o usuário rolar para cima, o painel para
@@ -65,8 +65,8 @@ export function ChatPanel() {
             <p className="eyebrow text-dim">Nenhum registro ainda</p>
             <p className="max-w-[32ch] text-sm text-dim">
               {connected
-                ? "Fale com a Polaris pelo microfone — a conversa aparece aqui conforme acontece."
-                : "Suba o backend com ./polaris.sh — o espelho conecta sozinho."}
+                ? "Fale com a Maya pelo microfone — a conversa aparece aqui conforme acontece."
+                : "Suba o backend com ./maya.sh — o espelho conecta sozinho."}
             </p>
           </div>
         ) : (
@@ -81,7 +81,7 @@ export function ChatPanel() {
             {thinking && (
               <div className="flex items-center gap-1.5 self-start">
                 <OrbGlyph />
-                <span className="eyebrow text-dim">Polaris · pensando…</span>
+                <span className="eyebrow text-dim">Maya · pensando…</span>
               </div>
             )}
             <div ref={bottomRef} />

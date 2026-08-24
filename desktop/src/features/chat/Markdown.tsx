@@ -1,5 +1,5 @@
 /**
- * Markdown da Polaris — GFM + highlight de código (rehype-highlight).
+ * Markdown da Maya — GFM + highlight de código (rehype-highlight).
  */
 
 import ReactMarkdown from "react-markdown";

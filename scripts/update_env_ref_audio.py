@@ -1,8 +1,8 @@
-"""Update Polaris .env QWEN3_REF_AUDIO to the Downloads copy."""
+"""Update Maya .env QWEN3_REF_AUDIO to the Downloads copy."""
 import re
 from pathlib import Path
 
-ENV = Path("/home/tmarcorf/Documentos/dev/polaris/.env")
+ENV = Path("/home/tmarcorf/Documentos/dev/maya/.env")
 NEW_REF = "/home/tmarcorf/Downloads/kerry_condon_ref_clip_20s.wav"
 
 lines = ENV.read_text(encoding="utf-8").splitlines()

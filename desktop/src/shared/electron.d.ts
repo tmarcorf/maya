@@ -1,7 +1,7 @@
 /**
  * Declaração do bridge exposto pelo preload do Electron (Fase 2).
  *
- * Na Fase 1 (web puro) `window.polaris` não existe e o renderer usa o
+ * Na Fase 1 (web puro) `window.maya` não existe e o renderer usa o
  * `WsTransport`; quando o preload estiver presente, o `IpcTransport` o
  * substitui sem tocar nas stores.
  */
@@ -17,7 +17,7 @@ import type { ChatMessage } from "@/store/useChatStore";
 
 declare global {
   interface Window {
-    polaris?: {
+    maya?: {
       onBridgeEvent(callback: (event: BridgeEvent) => void): () => void;
       onConnectionChange(callback: (status: ConnectionStatus) => void): () => void;
       sendCommand(command: Omit<Command, "id">): Promise<AckEvent>;

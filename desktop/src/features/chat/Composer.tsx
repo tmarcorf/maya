@@ -2,7 +2,7 @@
  * Caixa de texto do chat — digitar além de falar.
  *
  * O texto enviado vai pelo comando `send_user_message`: o backend injeta a
- * mensagem no pipeline (ignorando a wake word), a Polaris responde por voz
+ * mensagem no pipeline (ignorando a wake word), a Maya responde por voz
  * e a resposta aparece no chat pelos eventos existentes. A bolha do usuário
  * nasce do `user_transcript` ecoado pelo backend — nunca otimista, padrão
  * do espelho.
@@ -97,8 +97,8 @@ export function Composer() {
         disabled={!connected}
         maxLength={MAX_LENGTH}
         rows={1}
-        aria-label="Mensagem para a Polaris"
-        placeholder={connected ? "Digite uma mensagem para a Polaris…" : "Conecte ao backend para enviar…"}
+        aria-label="Mensagem para a Maya"
+        placeholder={connected ? "Digite uma mensagem para a Maya…" : "Conecte ao backend para enviar…"}
         className="block min-w-0 flex-1 resize-none overflow-y-auto border border-line bg-panel px-3 py-2 text-[0.875rem] text-text outline-none transition-colors placeholder:text-dim focus:border-text/40 disabled:cursor-not-allowed disabled:opacity-50"
       />
       <button

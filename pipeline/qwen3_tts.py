@@ -1,4 +1,4 @@
-"""Qwen3-TTS service for Polaris.
+"""Qwen3-TTS service for Maya.
 
 A local TTS provider wrapping the `qwen-tts` package (Qwen3-TTS, 0.6B).
 Unlike the cloud ElevenLabs service, this runs a PyTorch model on the GPU:
@@ -196,7 +196,7 @@ class Qwen3TTSService(TTSService):
         )
 
         # Blocking model load (Kokoro precedent). Happens at startup, before
-        # "Polaris is listening" — a bad model id/speaker/device fails here,
+        # "Maya is listening" — a bad model id/speaker/device fails here,
         # not mid-conversation.
         self._model = _load_qwen_model(model_id, device, dtype, attn_implementation)
         self._gen_kwargs: dict = {"max_new_tokens": max_new_tokens}

@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /*
- * Design system "FBC panel" — Polaris companion.
+ * Design system "FBC panel" — Maya companion.
  *
  * Identidade: instrumento de controle do Federal Bureau of Control —
  * concreto escuro, hairlines, etiquetas monoespaçadas, doses mínimas do
@@ -73,7 +73,7 @@ body {
   outline-offset: 2px;
 }
 
-/* Caret do streaming da Polaris. */
+/* Caret do streaming da Maya. */
 .stream-caret {
   display: inline-block;
   width: 0.5ch;

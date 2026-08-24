@@ -15,7 +15,7 @@ import { useLevelStore } from "@/store/useLevelStore";
 import type { AudioMood, BridgeAudioSource } from "./bridgeAudio";
 
 /**
- * `speaking` é o pulso da fala da Polaris — o único estado que pula do
+ * `speaking` é o pulso da fala da Maya — o único estado que pula do
  * áudio real do TTS. `thinking` não tem áudio nenhum fluindo; sem o modo
  * ambiente o orb congelaria exatamente enquanto o Hermes trabalha, que é
  * quando o usuário mais precisa de sinal de que algo está acontecendo.

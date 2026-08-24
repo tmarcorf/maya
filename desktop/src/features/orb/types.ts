@@ -3,7 +3,7 @@
  *
  * `AudioFrame` é o contrato que o `Orb` consome uma vez por frame — o mesmo
  * que o protótipo em `orb/` produzia com Web Audio. Aqui ele é produzido pelo
- * `BridgeAudioSource`, a partir dos eventos da bridge da Polaris.
+ * `BridgeAudioSource`, a partir dos eventos da bridge da Maya.
  */
 
 export const SPECTRUM_BINS = 256;

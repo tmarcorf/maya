@@ -2,7 +2,7 @@
  * Bolha de mensagem.
  *
  * Usuário: à direita, texto puro sobre painel.
- * Polaris: à esquerda, marcada pelo glifo do orb (paleta ativa) — a
+ * Maya: à esquerda, marcada pelo glifo do orb (paleta ativa) — a
  * assinatura do painel. Markdown renderizado; durante o streaming, um caret
  * pisca no fim.
  */
@@ -26,7 +26,7 @@ export const MessageBubble = memo(function MessageBubble({ message }: { message:
       <div className="mb-1 flex items-baseline gap-1.5">
         {!isUser && <OrbGlyph className="h-3.5 w-3.5 self-center" />}
         <span className="eyebrow text-dim">
-          {isUser ? "Você" : "Polaris"} · {timeFormat.format(message.ts)}
+          {isUser ? "Você" : "Maya"} · {timeFormat.format(message.ts)}
         </span>
       </div>
       <div

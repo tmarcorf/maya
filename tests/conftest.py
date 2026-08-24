@@ -1,4 +1,4 @@
-"""Shared fixtures and helpers for Polaris tests."""
+"""Shared fixtures and helpers for Maya tests."""
 
 from __future__ import annotations
 

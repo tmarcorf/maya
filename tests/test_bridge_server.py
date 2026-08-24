@@ -243,7 +243,7 @@ async def test_audio_level_reaches_the_client_with_spectrum(server):
 
         bridge = VoiceBridge(wake_controller=controller)
         bridge.set_publisher(bridge_server.publish)
-        # 440 Hz at 24 kHz, the TTS rate — as if Polaris were speaking.
+        # 440 Hz at 24 kHz, the TTS rate — as if Maya were speaking.
         samples = np.sin(2 * np.pi * 440 * np.arange(2400) / 24000) * 0.8
         pcm = (samples * 32767).astype(np.int16).tobytes()
         await bridge.process_frame(

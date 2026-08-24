@@ -1,10 +1,10 @@
 /**
- * Glifo do orb — a assinatura da Polaris no chat.
+ * Glifo do orb — a assinatura da Maya no chat.
  *
  * Retrato 2D do orb 3D: esfera com o gradiente vertical da paleta ativa
  * (top → mid → bottom), um brilho especular no alto e um halo no tom do
  * meio. Substitui o antigo glifo da pirâmide invertida nas respostas da
- * Polaris; muda de paleta junto com o orb.
+ * Maya; muda de paleta junto com o orb.
  */
 
 import { PALETTES } from "@/features/orb/visualizer";

@@ -6,7 +6,7 @@ import { _electron } from "playwright-core";
 import { WebSocketServer, WebSocket } from "ws";
 
 const PORT = 8688;
-const ROOT = "/home/tmarcorf/Documentos/dev/polaris/desktop";
+const ROOT = "/home/tmarcorf/Documentos/dev/maya/desktop";
 
 const now = () => Date.now();
 const clients = new Set();
@@ -15,12 +15,12 @@ const wss = new WebSocketServer({ port: PORT });
 wss.on("connection", (socket) => {
   clients.add(socket);
   socket.send(JSON.stringify({ ts: now(), type: "hello", bridgeVersion: 1, session: { appSessionId: "s", hermesSessionId: "h" } }));
-  socket.send(JSON.stringify({ ts: now(), type: "state", voice: "idle", wake: { enabled: true, state: "asleep", phrase: "E aí, Polaris" } }));
+  socket.send(JSON.stringify({ ts: now(), type: "state", voice: "idle", wake: { enabled: true, state: "asleep", phrase: "E aí, Maya" } }));
   socket.on("message", (raw) => {
     let msg;
     try { msg = JSON.parse(String(raw)); } catch { return; }
     if (msg.cmd === "get_state") {
-      socket.send(JSON.stringify({ ts: now(), type: "ack", id: msg.id, ok: true, data: { voice: "idle", wake: { enabled: true, state: "asleep", phrase: "E aí, Polaris" }, session: { appSessionId: "s", hermesSessionId: "h" } } }));
+      socket.send(JSON.stringify({ ts: now(), type: "ack", id: msg.id, ok: true, data: { voice: "idle", wake: { enabled: true, state: "asleep", phrase: "E aí, Maya" }, session: { appSessionId: "s", hermesSessionId: "h" } } }));
     } else if (msg.cmd === "ping") {
       socket.send(JSON.stringify({ ts: now(), type: "ack", id: msg.id, ok: true, data: "pong" }));
     } else {
@@ -36,7 +36,7 @@ const broadcast = (event) => {
 
 const app = await _electron.launch({
   executablePath: `${ROOT}/node_modules/.bin/electron`,
-  args: [".", "--user-data-dir=/tmp/polaris-repro2"],
+  args: [".", "--user-data-dir=/tmp/maya-repro2"],
   cwd: ROOT,
   env: { ...process.env, VITE_DEV_SERVER_URL: "http://127.0.0.1:5174" },
 });
@@ -46,7 +46,7 @@ await win.waitForTimeout(2500); // deixa a mãozinha conectar
 
 // Turno do agente: deltas com espaços normais, como o backend real envia.
 const TURN = "turn-repro-1";
-const REPLY = "A Polaris está de pé e operacional. Todos os sistemas funcionando normalmente, sem nenhuma anomalia registrada no dia de hoje.";
+const REPLY = "A Maya está de pé e operacional. Todos os sistemas funcionando normalmente, sem nenhuma anomalia registrada no dia de hoje.";
 const words = REPLY.split(" ");
 for (let i = 0; i < words.length; i++) {
   broadcast({ type: "agent_text", turnId: TURN, delta: `${words[i]} ` });
@@ -83,8 +83,8 @@ const state = await win.evaluate(() => {
   };
 });
 console.log(JSON.stringify(state, null, 2));
-await win.screenshot({ path: "/tmp/polaris-chat2.png" });
-console.log("[screenshot] /tmp/polaris-chat2.png");
+await win.screenshot({ path: "/tmp/maya-chat2.png" });
+console.log("[screenshot] /tmp/maya-chat2.png");
 await app.close();
 wss.close();
 process.exit(0);

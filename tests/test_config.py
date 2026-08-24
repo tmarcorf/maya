@@ -247,20 +247,20 @@ def test_wake_word_defaults_when_unset(monkeypatch):
     settings = load_settings()
 
     assert settings.wake_word_enabled is False
-    assert settings.wake_word_phrases == ["E aí, Polaris", "Ei, Polaris", "Polaris, tá aí?"]
+    assert settings.wake_word_phrases == ["E aí, Maya", "Ei, Maya", "Maya, tá aí?"]
     assert settings.wake_word_timeout == 10.0
 
 
 def test_wake_word_enabled_and_phrases(monkeypatch):
     monkeypatch.setenv("HERMES_API_KEY", "secret-123")
     monkeypatch.setenv("WAKE_WORD_ENABLED", "yes")
-    monkeypatch.setenv("WAKE_WORD_PHRASES", " Ei, Polaris ;; Polaris, tá aí? ")
+    monkeypatch.setenv("WAKE_WORD_PHRASES", " Ei, Maya ;; Maya, tá aí? ")
     monkeypatch.setenv("WAKE_WORD_TIMEOUT", "30")
 
     settings = load_settings()
 
     assert settings.wake_word_enabled is True
-    assert settings.wake_word_phrases == ["Ei, Polaris", "Polaris, tá aí?"]
+    assert settings.wake_word_phrases == ["Ei, Maya", "Maya, tá aí?"]
     assert settings.wake_word_timeout == 30.0
 
 

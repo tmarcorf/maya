@@ -35,7 +35,9 @@ export interface ToolActivity {
   ts: number;
 }
 
-const STORAGE_KEY = "polaris.chat.v1";
+const STORAGE_KEY = "maya.chat.v1";
+// Chave antiga (Polaris): só para a migração única de nomes.
+const LEGACY_STORAGE_KEY = "polaris.chat.v1";
 const MAX_MESSAGES = 200;
 // Atividades de ferramenta: eventos raros (uma por chamada), cap mais folgado
 // que as mensagens — nunca chegam perto, mas o DOM fica limitado de qualquer
@@ -69,10 +71,25 @@ function isChatMessage(value: unknown): value is ChatMessage {
   );
 }
 
+/** Migração única de nomes: copia o que houver na chave antiga (Polaris). */
+function migrateStorageKey(): void {
+  try {
+    if (localStorage.getItem(STORAGE_KEY) !== null) return;
+    const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (legacy !== null) {
+      localStorage.setItem(STORAGE_KEY, legacy);
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+    }
+  } catch {
+    // Storage bloqueado/quota: sem migração, segue sem dados.
+  }
+}
+
 function loadPersisted(): ChatMessage[] {
   // No Electron (preload presente) o histórico vive no userData e chega
   // assíncrono (App faz o load); no navegador, localStorage é o fallback.
-  if (typeof window !== "undefined" && window.polaris) return [];
+  migrateStorageKey();
+  if (typeof window !== "undefined" && window.maya) return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
@@ -86,8 +103,8 @@ function loadPersisted(): ChatMessage[] {
 
 function persist(messages: ChatMessage[]): void {
   const capped = messages.slice(-MAX_MESSAGES);
-  if (typeof window !== "undefined" && window.polaris) {
-    void window.polaris.history.save(capped).catch(() => {
+  if (typeof window !== "undefined" && window.maya) {
+    void window.maya.history.save(capped).catch(() => {
       // Best-effort: o espelho persistido não pode quebrar a sessão.
     });
     return;
@@ -101,8 +118,8 @@ function persist(messages: ChatMessage[]): void {
 
 /** Carrega o histórico persistido no userData (Electron) e mescla. */
 export function hydrateChatHistory(): void {
-  if (typeof window === "undefined" || !window.polaris) return;
-  void window.polaris.history
+  if (typeof window === "undefined" || !window.maya) return;
+  void window.maya.history
     .load()
     .then((loaded) => {
       const valid = loaded.filter(isChatMessage);
@@ -287,8 +304,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     activeSegments.clear();
     nextSegment.clear();
     set({ messages: [], toolActivities: [] });
-    if (typeof window !== "undefined" && window.polaris) {
-      void window.polaris.history.clear().catch(() => {
+    if (typeof window !== "undefined" && window.maya) {
+      void window.maya.history.clear().catch(() => {
         // best-effort
       });
       return;

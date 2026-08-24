@@ -12,8 +12,8 @@ function createTransport(): Transport {
   // No Electron (preload presente), a conexão vive no processo main —
   // tray e atalho global continuam com a janela fechada. No navegador
   // (dev web), o renderer conecta direto na bridge.
-  if (typeof window !== "undefined" && window.polaris) {
-    return new IpcTransport(window.polaris);
+  if (typeof window !== "undefined" && window.maya) {
+    return new IpcTransport(window.maya);
   }
   return new WsTransport();
 }

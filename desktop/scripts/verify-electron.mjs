@@ -16,7 +16,7 @@ const app = await _electron.launch({
   executablePath: `${ROOT}node_modules/.bin/electron`,
   // userData próprio: o lock de instância única é por perfil, então a
   // verificação roda sem derrubar um app aberto — e sem tocar no histórico real.
-  args: [".", "--user-data-dir=/tmp/polaris-verify"],
+  args: [".", "--user-data-dir=/tmp/maya-verify"],
   cwd: ROOT,
   env: { ...process.env },
 });
@@ -71,13 +71,13 @@ const canvas = await win.evaluate(() => {
 console.log("[orb] canvas", JSON.stringify(canvas));
 
 const stage = win.locator(".orb-stage");
-await stage.screenshot({ path: "/tmp/polaris-orb-a.png" });
+await stage.screenshot({ path: "/tmp/maya-orb-a.png" });
 await win.waitForTimeout(400);
-await stage.screenshot({ path: "/tmp/polaris-orb-b.png" });
+await stage.screenshot({ path: "/tmp/maya-orb-b.png" });
 // Dois quadros idênticos byte a byte significariam orb congelado.
 const [a, b] = await Promise.all([
-  import("node:fs").then((fs) => fs.readFileSync("/tmp/polaris-orb-a.png")),
-  import("node:fs").then((fs) => fs.readFileSync("/tmp/polaris-orb-b.png")),
+  import("node:fs").then((fs) => fs.readFileSync("/tmp/maya-orb-a.png")),
+  import("node:fs").then((fs) => fs.readFileSync("/tmp/maya-orb-b.png")),
 ]);
 console.log(
   `[orb] anima: ${a.equals(b) ? "NÃO (quadros idênticos)" : "sim"} (${a.length} vs ${b.length} bytes)`,
@@ -124,14 +124,14 @@ console.log("[ajustes] paleta Magma aria-pressed =", paleta);
 
 // A gravação é throttled em 250 ms para não escrever a cada frame do slider.
 await win.waitForTimeout(600);
-const persistido = await win.evaluate(() => localStorage.getItem("polaris.orb-settings.v1"));
+const persistido = await win.evaluate(() => localStorage.getItem("maya.orb-settings.v1"));
 console.log("[ajustes] persistido:", persistido);
 
 await win.keyboard.press("Escape");
 await win.waitForFunction(() => !document.querySelector('aside[role="dialog"]'), { timeout: 5000 });
 console.log("[ajustes] fecha com Esc");
 
-await win.screenshot({ path: "/tmp/polaris-electron.png" });
+await win.screenshot({ path: "/tmp/maya-electron.png" });
 console.log(
   "[electron]",
   JSON.stringify(

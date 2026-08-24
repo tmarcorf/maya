@@ -76,23 +76,23 @@ def test_build_pipeline_defaults_to_silero_vad():
     assert user_aggregator._params.vad_analyzer is not None
 
 
-def test_expand_wake_phrases_adds_polares_variants():
-    phrases = ["E aí, Polaris", "Ei, polares", "Olá"]
+def test_expand_wake_phrases_adds_maia_variants():
+    phrases = ["E aí, Maya", "Ei, maia", "Olá"]
     assert _expand_wake_phrases(phrases) == [
-        "e aí polaris",
-        "e ai polaris",
-        "e aí polares",
-        "e ai polares",
-        "ei polares",
-        "ei polaris",
+        "e aí maya",
+        "e ai maya",
+        "e aí maia",
+        "e ai maia",
+        "ei maia",
+        "ei maya",
         "olá",
         "ola",
     ]
 
 
 def test_expand_wake_phrases_dedups():
-    # "Polares" already covers both spellings of the name (case-insensitive).
-    assert _expand_wake_phrases(["Polaris", "Polares"]) == ["polaris", "polares"]
+    # "Maia" already covers both spellings of the name (case-insensitive).
+    assert _expand_wake_phrases(["Maya", "Maia"]) == ["maya", "maia"]
 
 
 class _StubTaskManager:
@@ -105,17 +105,17 @@ class _StubTaskManager:
 def test_wake_phrases_match_realistic_stt_output():
     """The pipecat strategy strips punctuation from transcriptions but builds
     its patterns from the phrases — expanded phrases must match anyway."""
-    phrases = _expand_wake_phrases(["E aí, Polaris", "Ei, Polaris", "Polaris, tá aí?"])
+    phrases = _expand_wake_phrases(["E aí, Maya", "Ei, Maya", "Maya, tá aí?"])
     strategy = WakePhraseUserTurnStartStrategy(phrases=phrases, timeout=10)
     strategy._task_manager = _StubTaskManager()
 
     for transcription in (
-        "E aí, Polaris",
-        "e aí polares",  # Whisper mishears the assistant's name.
-        "e ai polaris",  # Whisper drops the accent.
-        "Ei, Polaris",
-        "Polaris tá aí",
-        "polares ta ai",  # accent + name misspelling.
+        "E aí, Maya",
+        "e aí maia",  # Whisper mishears the assistant's name.
+        "e ai maya",  # Whisper drops the accent.
+        "Ei, Maya",
+        "Maya tá aí",
+        "maia ta ai",  # accent + name misspelling.
     ):
         assert strategy._check_wake_phrase(transcription), transcription
 
@@ -136,7 +136,7 @@ def test_build_pipeline_wake_word_enabled():
         context,
         vad_analyzer=None,
         wake_word_enabled=True,
-        wake_phrases=["E aí, Polaris", "Ei, Polaris"],
+        wake_phrases=["E aí, Maya", "Ei, Maya"],
         wake_timeout=30.0,
     )
 
@@ -145,12 +145,12 @@ def test_build_pipeline_wake_word_enabled():
     wake_strategy = start_strategies[0]
     assert isinstance(wake_strategy, WakePhraseUserTurnStartStrategy)
     assert wake_strategy._phrases == [
-        "e aí polaris",
-        "e ai polaris",
-        "e aí polares",
-        "e ai polares",
-        "ei polaris",
-        "ei polares",
+        "e aí maya",
+        "e ai maya",
+        "e aí maia",
+        "e ai maia",
+        "ei maya",
+        "ei maia",
     ]
     assert wake_strategy._timeout == 30.0
     # Wake first, then the two pipecat defaults.
@@ -188,7 +188,7 @@ def test_build_pipeline_wake_controller_always_adds_toggleable_strategy():
         context,
         vad_analyzer=None,
         wake_word_enabled=False,
-        wake_phrases=["E aí, Polaris"],
+        wake_phrases=["E aí, Maya"],
         wake_controller=controller,
         observer=observer,
     )

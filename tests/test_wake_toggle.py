@@ -42,7 +42,7 @@ def _make_strategy(enabled: bool = True) -> tuple[WakeWordController, Toggleable
     controller = WakeWordController(enabled=enabled)
     strategy = ToggleableWakePhraseStrategy(
         controller=controller,
-        phrases=["e aí polaris"],
+        phrases=["e aí maya"],
         timeout=10,
     )
     return controller, strategy
@@ -73,9 +73,9 @@ def test_controller_toggle_emits_event_once():
 def test_controller_tracks_detected_and_timeout():
     controller = WakeWordController(enabled=True)
 
-    controller.notify_detected("e aí polaris")
+    controller.notify_detected("e aí maya")
     assert controller.state == "awake"
-    assert controller.phrase == "e aí polaris"
+    assert controller.phrase == "e aí maya"
 
     controller.notify_timeout()
     assert controller.state == "asleep"
@@ -85,7 +85,7 @@ def test_controller_tracks_detected_and_timeout():
 def test_controller_ignores_strategy_events_while_disabled():
     controller = WakeWordController(enabled=False)
 
-    controller.notify_detected("e aí polaris")
+    controller.notify_detected("e aí maya")
     controller.notify_timeout()
 
     assert controller.state == "disabled"
@@ -113,11 +113,11 @@ async def test_enabled_strategy_blocks_until_wake_phrase():
     # The wake phrase matches (STOP: the turn-start controller takes over)
     # and the match is forwarded to the controller.
     assert (
-        await strategy.process_frame(_transcription("E aí, Polaris"))
+        await strategy.process_frame(_transcription("E aí, Maya"))
         is ProcessFrameResult.STOP
     )
     assert await _wait_for(lambda: controller.state == "awake")
-    assert controller.phrase == "e aí polaris"
+    assert controller.phrase == "e aí maya"
 
     # Awake: frames continue to the remaining strategies.
     assert (
@@ -129,7 +129,7 @@ async def test_enabled_strategy_blocks_until_wake_phrase():
 async def test_disabling_mid_awake_returns_to_sleep():
     controller, strategy = _make_strategy(enabled=True)
     strategy._task_manager = _StubTaskManager()
-    await strategy.process_frame(_transcription("E aí, Polaris"))
+    await strategy.process_frame(_transcription("E aí, Maya"))
     assert strategy.state.value == "awake"
 
     controller.set_enabled(False)

@@ -1,4 +1,4 @@
-# Polaris — dependências de runtime (espelha pyproject.toml).
+# Maya — dependências de runtime (espelha pyproject.toml).
 # Instale uma vez, antes da primeira execução:
 #   uv pip install -r requirements.txt
 # (ou: uv sync)

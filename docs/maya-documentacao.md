@@ -1,4 +1,4 @@
-# Polaris — Documentação Técnica
+# Maya — Documentação Técnica
 
 > Assistente de voz local: **Pipecat** (voz, STT, TTS, streaming) + **Hermes Agent** (cérebro agêntico).
 > Especificação original: `docs/Implementação de agente de voz com Pipecat + Hermes Agent.md`.
@@ -8,7 +8,7 @@
 
 ## 1. Visão geral
 
-Polaris é **a ponte** entre voz e agente. O Pipecat cuida de tudo que é áudio/orquestração em tempo real; o Hermes é o agente (LLM, tools, terminal, browser, memória, skills) e roda **em processo separado**, exposto em `http://127.0.0.1:8642/v1`. Nada é duplicado entre os dois.
+Maya é **a ponte** entre voz e agente. O Pipecat cuida de tudo que é áudio/orquestração em tempo real; o Hermes é o agente (LLM, tools, terminal, browser, memória, skills) e roda **em processo separado**, exposto em `http://127.0.0.1:8642/v1`. Nada é duplicado entre os dois.
 
 ```
 Você  ──fala──▶  PIPECAT (processo 1)                HERMES AGENT (processo 2)
@@ -67,7 +67,7 @@ A ordem vem do exemplo oficial do Pipecat (`06a-voice-agent-local.py`) e da spec
 | Processo | Comando | Papel |
 |---|---|---|
 | Hermes Agent | `hermes gateway` | API server em `127.0.0.1:8642` (auth: `Authorization: Bearer <API_SERVER_KEY>`) |
-| Polaris | `uv run python app.py` | Pipeline de voz completo |
+| Maya | `uv run python app.py` | Pipeline de voz completo |
 
 ### 2.3 Fluxo de um turno
 
@@ -95,11 +95,11 @@ A ordem vem do exemplo oficial do Pipecat (`06a-voice-agent-local.py`) e da spec
 ## 3. Estrutura do projeto
 
 ```
-polaris/
+maya/
 ├── app.py                      # entrypoint: config → health check → runner
 ├── pyproject.toml              # deps: pipecat-ai[kokoro,local,whisper,elevenlabs]>=1.4,<2 + qwen-tts + libs NVIDIA CUDA 12 + dev
 ├── requirements.txt            # espelha o pyproject p/ instalação de primeira execução
-├── polaris.sh                  # sobe hermes gateway + agente (exporta LD_LIBRARY_PATH das libs CUDA)
+├── maya.sh                  # sobe hermes gateway + agente (exporta LD_LIBRARY_PATH das libs CUDA)
 ├── README.md                   # visão do usuário (instalação, execução, troubleshooting)
 ├── .env.example                # template de configuração (spec §12)
 ├── .gitignore                  # .env, .venv, caches
@@ -122,7 +122,7 @@ polaris/
 │   └── test_interruption.py    # spec §19.8 — interrupção/cancelamento
 └── docs/
     ├── Implementação de agente de voz com Pipecat + Hermes Agent.md   # spec
-    └── polaris-documentacao.md  # este documento
+    └── maya-documentacao.md  # este documento
 ```
 
 ---
@@ -211,10 +211,10 @@ data: [DONE]
   - `WhisperSTTService(device=..., compute_type=..., settings=WhisperSTTService.Settings(model=..., language=..., no_speech_prob=0.4))` — usa `settings=` porque `model=`/`language=`/`no_speech_prob=` no construtor estão **deprecados** desde 1.7;
   - `_build_tts_service(settings)` — único ponto de troca de TTS: `TTS_PROVIDER=kokoro` → `KokoroTTSService(settings=KokoroTTSService.Settings(voice=..., language=...), sample_rate=24000)`; `TTS_PROVIDER=elevenlabs` → `ElevenLabsTTSService(api_key=..., settings=ElevenLabsTTSService.Settings(voice=..., model=..., language=...), sample_rate=24000)` (WebSocket `multi-stream-input`, streaming incremental; import lazy); `TTS_PROVIDER=qwen3` → `Qwen3TTSService` customizado (`pipeline/qwen3_tts.py`): carrega o modelo PyTorch na **construção** (fail-fast no startup), gera uma sentença por chamada via `asyncio.to_thread` + lock anti-sobreposição de barge-in, e reamostra (SOXR) o `sr` nativo do modelo para 24000 (qwen-tts não tem streaming real de input; import lazy). `push_start_frame`/`push_stop_frames` já são defaults; agregação `SENTENCE` é default do `TTSService`;
   - `_tts_language()`: `pt`/`pt-br` → `Language.PT_BR`; qualquer outra string vira `Language(value)`. No ElevenLabs vira `language_code=pt` na URL do WS (modelos multilingual).
-- `build_pipeline(..., vad_analyzer, wake_word_enabled, wake_phrases, wake_timeout)` — com wake word habilitado, monta `LLMUserAggregatorParams(user_turn_strategies=UserTurnStrategies(start=[WakePhraseUserTurnStartStrategy(phrases=..., timeout=...), *default_user_turn_start_strategies()]))`: a strategy fica **primeira** e bloqueia turnos enquanto dorme (padrão documentado do pipecat; `stop` fica `None` → defaults preservados). `_expand_wake_phrases()` normaliza cada frase (minúsculas, sem pontuação) e gera variantes: `polaris↔polares` (o Whisper transcreve "polares") e sem acentos ("ta" ↔ "tá"). A normalização é obrigatória: o `WakePhraseUserTurnStartStrategy` do pipecat remove a pontuação da transcrição, mas monta os regex a partir das frases como estão — uma frase com vírgula/`?` jamais casaria; handlers `on_wake_phrase_detected`/`on_wake_phrase_timeout` logam em INFO.
+- `build_pipeline(..., vad_analyzer, wake_word_enabled, wake_phrases, wake_timeout)` — com wake word habilitado, monta `LLMUserAggregatorParams(user_turn_strategies=UserTurnStrategies(start=[WakePhraseUserTurnStartStrategy(phrases=..., timeout=...), *default_user_turn_start_strategies()]))`: a strategy fica **primeira** e bloqueia turnos enquanto dorme (padrão documentado do pipecat; `stop` fica `None` → defaults preservados). `_expand_wake_phrases()` normaliza cada frase (minúsculas, sem pontuação) e gera variantes: `maya↔maia` (o Whisper transcreve "maia") e sem acentos ("ta" ↔ "tá"). A normalização é obrigatória: o `WakePhraseUserTurnStartStrategy` do pipecat remove a pontuação da transcrição, mas monta os regex a partir das frases como estão — uma frase com vírgula/`?` jamais casaria; handlers `on_wake_phrase_detected`/`on_wake_phrase_timeout` logam em INFO.
 - `build_pipeline(transport, stt, llm, tts, context, *, vad_analyzer=_UNSET)` — monta a ordem da §2.1; `vad_analyzer=None` nos testes evita carregar o modelo Silero (que é bundled no wheel, sem download).
 - `run_voice_agent(settings, ...)` — `PipelineWorker(pipeline, params=PipelineParams(enable_metrics=True, enable_usage_metrics=True), idle_timeout_secs=None, conversation_id=<app session>)` + `WorkerRunner` + `queue_frames([LLMRunFrame()])` + `await runner.run()`.
-  - `idle_timeout_secs=None` é **essencial**: o default (300 s) mataria o Polaris após 5 min de silêncio.
+  - `idle_timeout_secs=None` é **essencial**: o default (300 s) mataria o Maya após 5 min de silêncio.
   - `PipelineTask`/`PipelineTaskParams` estão deprecados desde 1.3.0 — usamos `PipelineWorker`.
 
 ### 4.5 `utils/logging.py`
@@ -277,7 +277,7 @@ Status ≠ 200 → log do corpo (truncado em 300 chars) + `ErrorFrame` upstream 
 | `HERMES_BASE_URL` | `http://127.0.0.1:8642/v1` | Endpoint do API server do Hermes |
 | `HERMES_API_KEY` | *(obrigatória)* | Deve ser igual a `API_SERVER_KEY` de `~/.hermes/.env` |
 | `HERMES_MODEL` | `hermes-agent` | Modelo anunciado no `/v1/models` |
-| `HERMES_SESSION_ID` | *(gerado: `voice-session-<uuid>`)* | Id da conversa no lado Polaris |
+| `HERMES_SESSION_ID` | *(gerado: `voice-session-<uuid>`)* | Id da conversa no lado Maya |
 | `STT_MODEL` | `small` | `tiny`/`base`/`small`/`medium`/`large` (faster-whisper) |
 | `STT_DEVICE` | `cpu` | `cpu`/`cuda`/`auto` |
 | `STT_COMPUTE_TYPE` | `int8` | Precisão do ctranslate2 |
@@ -299,7 +299,7 @@ Status ≠ 200 → log do corpo (truncado em 300 chars) + `ErrorFrame` upstream 
 | `QWEN3_MAX_NEW_TOKENS` | `4096` | Máximo de tokens de áudio gerados por sentença |
 | `QWEN3_TOP_P` | *(vazio)* | Default do modelo; número em (0-1] |
 | `WAKE_WORD_ENABLED` | `false` | `true` exige wake phrase (transcrição) antes de cada conversa |
-| `WAKE_WORD_PHRASES` | `E aí, Polaris;Ei, Polaris;Polaris, tá aí?` | Lista separada por `;`; pontuação, acentos e "Polaris"/"Polares" são normalizados automaticamente |
+| `WAKE_WORD_PHRASES` | `E aí, Maya;Ei, Maya;Maya, tá aí?` | Lista separada por `;`; pontuação, acentos e "Maya"/"Maia" são normalizados automaticamente |
 | `WAKE_WORD_TIMEOUT` | `10` | Segundos de inatividade até voltar a dormir |
 | `LOG_LEVEL` | `INFO` | `DEBUG` mostra detalhes do Pipecat |
 | `AUDIO_IN_DEVICE` / `AUDIO_OUT_DEVICE` | *(vazio)* | Índices PyAudio; vazio = padrão do sistema |
@@ -394,16 +394,16 @@ user_params=LLMUserAggregatorParams(
 ### Modelo/GPU do Whisper
 `STT_MODEL`, `STT_DEVICE`, `STT_COMPUTE_TYPE` no `.env`. Para CPU fraca: `STT_MODEL=base`. Em `voice_pipeline.build_services` o `no_speech_prob=0.4` (filtra alucinações de fala em silêncio).
 
-Com `STT_DEVICE=cuda`, o ctranslate2 precisa das libs CUDA runtime — instaladas via pip (`nvidia-cublas-cu12`/`nvidia-cudnn-cu12`/`nvidia-cuda-runtime-cu12`) e expostas pelo `./polaris.sh` via `LD_LIBRARY_PATH` (sem isso: `Library libcublas.so.12 is not found`).
+Com `STT_DEVICE=cuda`, o ctranslate2 precisa das libs CUDA runtime — instaladas via pip (`nvidia-cublas-cu12`/`nvidia-cudnn-cu12`/`nvidia-cuda-runtime-cu12`) e expostas pelo `./maya.sh` via `LD_LIBRARY_PATH` (sem isso: `Library libcublas.so.12 is not found`).
 
 ### Wake word
-Ligada por `WAKE_WORD_ENABLED=true` no `.env` (por transcrição, sem modelo extra). Enquanto dorme, nenhuma fala chega ao Hermes (o `WakePhraseUserTurnStartStrategy` retorna `STOP` e reseta a agregação em transcrições sem match); a frase detectada inicia o turno normalmente — e o próprio texto dela vira o input (dizer só "E aí, Polaris" gera uma resposta de saudação). Após `WAKE_WORD_TIMEOUT` s de inatividade, volta a dormir (evento `on_wake_phrase_timeout`). Com wake ativo, `run_voice_agent` **não** enfileira o `LLMRunFrame` de kickstart (senão o Hermes falaria no boot). Frases: separadas por `;`; o casamento ignora maiúsculas, pontuação e acentos, e as grafias "Polaris"/"Polares" são equivalentes (`_expand_wake_phrases` normaliza tudo isso — sem a normalização de pontuação, a strategy do pipecat jamais casaria, pois remove a pontuação da transcrição mas exige a frase configurada literalmente no regex).
+Ligada por `WAKE_WORD_ENABLED=true` no `.env` (por transcrição, sem modelo extra). Enquanto dorme, nenhuma fala chega ao Hermes (o `WakePhraseUserTurnStartStrategy` retorna `STOP` e reseta a agregação em transcrições sem match); a frase detectada inicia o turno normalmente — e o próprio texto dela vira o input (dizer só "E aí, Maya" gera uma resposta de saudação). Após `WAKE_WORD_TIMEOUT` s de inatividade, volta a dormir (evento `on_wake_phrase_timeout`). Com wake ativo, `run_voice_agent` **não** enfileira o `LLMRunFrame` de kickstart (senão o Hermes falaria no boot). Frases: separadas por `;`; o casamento ignora maiúsculas, pontuação e acentos, e as grafias "Maya"/"Maia" são equivalentes (`_expand_wake_phrases` normaliza tudo isso — sem a normalização de pontuação, a strategy do pipecat jamais casaria, pois remove a pontuação da transcrição mas exige a frase configurada literalmente no regex).
 
 ### Agregação do TTS
 `TextAggregationMode.SENTENCE` é o default. Para mudar: passe `text_aggregation_mode=TextAggregationMode.TOKEN` no construtor do serviço em `_build_tts_service()` (fala por token — mais responsivo, mais cortes) ou `NONE` (fala só no fim). Import: `pipecat.services.tts_service.TextAggregationMode`.
 
 ### Porta/URL do Hermes
-Hermes: `API_SERVER_PORT` em `~/.hermes/.env`. Polaris: `HERMES_BASE_URL` no `.env`. O health check do `app.py` usa `{base_url}/health`.
+Hermes: `API_SERVER_PORT` em `~/.hermes/.env`. Maya: `HERMES_BASE_URL` no `.env`. O health check do `app.py` usa `{base_url}/health`.
 
 ### Novos eventos SSE do Hermes
 Tudo passa por `parse_chat_chunk()` em `pipeline/hermes.py` — chunks desconhecidos são descartados de forma tolerante. Para tratar um evento novo (ex.: `hermes.thinking`), adicione um branch em `parse_chat_chunk` e decida em `_process_context` se vira `LLMTextFrame`, log ou nada.
@@ -425,7 +425,7 @@ Nunca leia o payload do evento diretamente no TTS.
 O transport é isolado em `build_transport()` e injetado em `run_voice_agent(settings, transport=...)`. Basta implementar outro transport do Pipecat (ex.: `DailyTransport`, `WebsocketServerTransport`) e trocar a factory — pipeline, serviços e ponte Hermes não mudam.
 
 ### System prompt / personalidade
-**Não há system prompt no Polaris** — de propósito: o Hermes é a autoridade agêntica (spec §24). Ajustes de personalidade devem ser feitos no profile/config do Hermes (`~/.hermes/`), não no Pipecat. Evite adicionar `context.add_message({"role": "developer", ...})` — a mensagem entraria em duplicidade com o prompt do agente e poluiria a sessão.
+**Não há system prompt no Maya** — de propósito: o Hermes é a autoridade agêntica (spec §24). Ajustes de personalidade devem ser feitos no profile/config do Hermes (`~/.hermes/`), não no Pipecat. Evite adicionar `context.add_message({"role": "developer", ...})` — a mensagem entraria em duplicidade com o prompt do agente e poluiria a sessão.
 
 ### Trocar STT/TTS por outro serviço
 `build_services()` é o único lugar: substitua `WhisperSTTService` por qualquer `SegmentedSTTService` do Pipecat e o conteúdo de `_build_tts_service()` por outro `TTSService` (ou adicione um branch novo no `TTS_PROVIDER`). O restante do pipeline (agregadores, ponte, runner) permanece. Para um serviço TTS **local customizado**, `pipeline/qwen3_tts.py` é o padrão a seguir: subclasse de `TTSService` com `run_tts()` (yield de `TTSAudioRawFrame` + `ErrorFrame`), `Settings` aninhada, imports pesados isolados numa função de módulo (`_load_qwen_model`) para os testes fazerem monkeypatch, geração bloqueante via `asyncio.to_thread` + lock, e reamostragem SOXR do `sr` nativo para `sample_rate`.
@@ -476,7 +476,7 @@ Pin atual: `pipecat-ai>=1.4.0,<2.0` (instalado 1.7.0). O Pipecat muda rápido �
 # Hermes (terminal 1)
 hermes gateway                 # API server em http://127.0.0.1:8642
 
-# Polaris (terminal 2)
+# Maya (terminal 2)
 uv run python app.py           # fale no microfone; Ctrl+C para sair
 
 # Qualidade
@@ -512,4 +512,4 @@ uvx ruff check .               # lint
 - STT por turno (não streaming contínuo de transcrição) — spec §23 prevê streaming STT no futuro.
 - Barge-in fecha o stream sem `[DONE]` (esperado; o Hermes reaproveita o turno no disconnect).
 - Sem wake word, sem web/WebRTC, sem multiusuário (fora do escopo da v1 — spec §22).
-- Histórico/memória: 100% no Hermes; o Polaris não persiste nada além da sessão em memória (o id da sessão do Hermes é perdido ao reiniciar o Polaris — um `HERMES_SESSION_ID` fixo no `.env` é a forma de manter a mesma conversa entre execuções).
+- Histórico/memória: 100% no Hermes; o Maya não persiste nada além da sessão em memória (o id da sessão do Hermes é perdido ao reiniciar o Maya — um `HERMES_SESSION_ID` fixo no `.env` é a forma de manter a mesma conversa entre execuções).

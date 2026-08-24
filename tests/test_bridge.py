@@ -166,7 +166,9 @@ async def test_multi_sentence_tts_keeps_speaking_through_sentence_gaps():
     assert bridge.voice == "idle"
 
     ends = _events(sink, "agent_text_end")
-    assert len(ends) == 1 and ends[0]["text"] == "Primeirasegunda"
+    # Os deltas ("Primeira" + "segunda") ganham o espaço de volta no
+    # `_restore_delta_space` — o texto final é "Primeira segunda".
+    assert len(ends) == 1 and ends[0]["text"] == "Primeira segunda"
 
 
 async def test_user_transcript_published():
@@ -283,22 +285,22 @@ async def test_user_transcript_observer_wake_phrase_publishes_buffered():
         FrameDirection.DOWNSTREAM,
     )
     await observer.process_frame(VADUserStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
-    # Novamente: agora a fala casa com "polaris".
+    # Novamente: agora a fala casa com "maya".
     await observer.process_frame(VADUserStartedSpeakingFrame(), FrameDirection.UPSTREAM)
     await observer.process_frame(
-        TranscriptionFrame(text="polaris, que horas são?", user_id="user", timestamp="t2"),
+        TranscriptionFrame(text="maya, que horas são?", user_id="user", timestamp="t2"),
         FrameDirection.DOWNSTREAM,
     )
     await observer.process_frame(UserStartedSpeakingFrame(), FrameDirection.UPSTREAM)
 
     transcripts = _events(sink, "user_transcript")
-    assert [t["text"] for t in transcripts] == ["polaris, que horas são?"]
+    assert [t["text"] for t in transcripts] == ["maya, que horas são?"]
     assert len(pushed) == 6
 
 
 async def test_user_transcript_observer_keeps_publishing_after_wake_segment():
     """A palavra de ativação costuma ser seu próprio segmento de VAD: o turno
-    abre com "Polaris" e o pedido vem num segmento seguinte ("que horas
+    abre com "Maya" e o pedido vem num segmento seguinte ("que horas
     são?"). Os segmentos pós-abertura não podem resetar o turno nem ser
     descartados no VAD stop — publicam ao vivo, e o turno só fecha com o
     broadcast de UserStoppedSpeakingFrame."""
@@ -318,7 +320,7 @@ async def test_user_transcript_observer_keeps_publishing_after_wake_segment():
     # Segmento 1: só a palavra de ativação.
     await observer.process_frame(VADUserStartedSpeakingFrame(), FrameDirection.UPSTREAM)
     await observer.process_frame(
-        TranscriptionFrame(text="Polaris", user_id="user", timestamp="t1"),
+        TranscriptionFrame(text="Maya", user_id="user", timestamp="t1"),
         FrameDirection.DOWNSTREAM,
     )
     await observer.process_frame(UserStartedSpeakingFrame(), FrameDirection.UPSTREAM)
@@ -333,7 +335,7 @@ async def test_user_transcript_observer_keeps_publishing_after_wake_segment():
     await observer.process_frame(UserStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
 
     transcripts = _events(sink, "user_transcript")
-    assert [t["text"] for t in transcripts] == ["Polaris", "que horas são?"]
+    assert [t["text"] for t in transcripts] == ["Maya", "que horas são?"]
 
     # Turno fechado: fala seguinte sem ativação é descartada de novo.
     await observer.process_frame(VADUserStartedSpeakingFrame(), FrameDirection.UPSTREAM)
@@ -342,7 +344,7 @@ async def test_user_transcript_observer_keeps_publishing_after_wake_segment():
         FrameDirection.DOWNSTREAM,
     )
     await observer.process_frame(VADUserStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
-    assert [t["text"] for t in transcripts] == ["Polaris", "que horas são?"]
+    assert [t["text"] for t in transcripts] == ["Maya", "que horas são?"]
     assert len(pushed) == 10  # passthrough integral
 
 
@@ -463,7 +465,7 @@ async def test_vad_stop_alone_does_not_emit_state():
 
 async def test_state_carries_wake_payload():
     controller = WakeWordController(enabled=True)
-    controller.notify_detected("e aí polaris")
+    controller.notify_detected("e aí maya")
     bridge = VoiceBridge(wake_controller=controller)
     sink = _Sink()
     bridge.set_publisher(sink)
@@ -471,7 +473,7 @@ async def test_state_carries_wake_payload():
     await _feed(bridge, UserStartedSpeakingFrame())
 
     state = _events(sink, "state")[0]
-    assert state["wake"] == {"enabled": True, "state": "awake", "phrase": "e aí polaris"}
+    assert state["wake"] == {"enabled": True, "state": "awake", "phrase": "e aí maya"}
 
 
 async def test_audio_levels_rms_and_throttle():

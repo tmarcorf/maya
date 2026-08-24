@@ -1,9 +1,9 @@
-# Polaris Desktop
+# Maya Desktop
 
-Companion desktop (Electron) do agente de voz Polaris — orb 3D reativo aos
+Companion desktop (Electron) do agente de voz Maya — orb 3D reativo aos
 estados de voz, chat espelhando a conversa e toggle da wake word sincronizado
 com o backend. O app **só conecta**: o backend é subido separadamente com
-`./polaris.sh` (raiz do repo), que expõe a bridge WebSocket em
+`./maya.sh` (raiz do repo), que expõe a bridge WebSocket em
 `ws://127.0.0.1:8686` (`BRIDGE_WS_PORT`).
 
 ## Desenvolvimento (web puro — sem Electron)
@@ -20,7 +20,7 @@ O mock implementa o mesmo protocolo de `pipeline/bridge.py` e alterna os
 estados (idle → ouvindo → você fala → pensando → falando) com níveis de
 áudio sintéticos — dá para ver o orb reagir sem microfone.
 
-Com o backend real (`./polaris.sh` na raiz), basta `npm run dev:web`.
+Com o backend real (`./maya.sh` na raiz), basta `npm run dev:web`.
 
 ## Electron
 
@@ -36,7 +36,7 @@ via preload (`contextIsolation` + `sandbox`).
 ## Empacotamento
 
 ```bash
-npm run dist:linux   # release/Polaris-0.1.0.AppImage + polaris-desktop_0.1.0_amd64.deb
+npm run dist:linux   # release/Maya-0.1.0.AppImage + maya-desktop_0.1.0_amd64.deb
 ```
 
 ## Testes
