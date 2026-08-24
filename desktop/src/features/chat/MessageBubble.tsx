@@ -7,6 +7,8 @@
  * um caret pisca no fim.
  */
 
+import { memo } from "react";
+
 import { Markdown } from "@/features/chat/Markdown";
 import type { ChatMessage } from "@/store/useChatStore";
 
@@ -15,7 +17,7 @@ const timeFormat = new Intl.DateTimeFormat("pt-BR", {
   minute: "2-digit",
 });
 
-export function MessageBubble({ message }: { message: ChatMessage }) {
+export const MessageBubble = memo(function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
 
   return (
@@ -46,4 +48,4 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
       </div>
     </div>
   );
-}
+});

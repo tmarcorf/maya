@@ -40,7 +40,23 @@ export interface OrbOptions {
   meridians?: number;
   segments?: number;
   rings?: number;
+  coreWidth?: number;
+  coreHeight?: number;
 }
+
+/**
+ * Densidade da malha, calibrada para desempenho: o vertex shader de 4 octaves
+ * de simplex roda por vértice, e cada meridian é segmentado em pares — o custo
+ * cresce com meridians × segments. Os antigos (260/190/34/200/130 ≈ 133k
+ * vértices) dão o mesmo visual com bloom; subir aqui se a malha ficar esparsa.
+ */
+export const ORB_GEOMETRY = {
+  meridians: 180,
+  segments: 140,
+  rings: 30,
+  coreWidth: 128,
+  coreHeight: 96,
+} as const;
 
 export class Orb {
   readonly group = new THREE.Group();
@@ -58,7 +74,13 @@ export class Orb {
   private readonly flareTop: THREE.Sprite;
   private readonly flareBottom: THREE.Sprite;
 
-  constructor({ meridians = 260, segments = 190, rings = 34 }: OrbOptions = {}) {
+  constructor({
+    meridians = ORB_GEOMETRY.meridians,
+    segments = ORB_GEOMETRY.segments,
+    rings = ORB_GEOMETRY.rings,
+    coreWidth = ORB_GEOMETRY.coreWidth,
+    coreHeight = ORB_GEOMETRY.coreHeight,
+  }: OrbOptions = {}) {
     this.spectrumTexture = new THREE.DataTexture(
       this.spectrumData,
       SPECTRUM_BINS,
@@ -91,7 +113,7 @@ export class Orb {
       uColorBottom: { value: new THREE.Color(0x2ec5ff) },
     };
 
-    this.core = this.buildCore();
+    this.core = this.buildCore(coreWidth, coreHeight);
     this.filaments = this.buildFilaments(meridians, segments);
     this.rings = this.buildRings(rings, Math.max(96, meridians >> 1));
     const flares = this.buildFlares();
@@ -189,8 +211,8 @@ export class Orb {
     return lines;
   }
 
-  private buildCore(): CoreLayer {
-    const geometry = new THREE.SphereGeometry(1, 200, 130);
+  private buildCore(widthSegments: number, heightSegments: number): CoreLayer {
+    const geometry = new THREE.SphereGeometry(1, widthSegments, heightSegments);
 
     const material = new THREE.ShaderMaterial({
       uniforms: this.uniforms,

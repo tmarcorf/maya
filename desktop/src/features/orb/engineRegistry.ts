@@ -31,6 +31,9 @@ export function applyOrbSettings(settings: OrbVisualSettings): void {
   visualizer.settings.glow = settings.glow;
   visualizer.settings.bloom = settings.bloom;
   visualizer.settings.sensitivity = settings.sensitivity;
+  if (visualizer.dprCap !== settings.resolution) {
+    visualizer.setResolution(settings.resolution);
+  }
   if (visualizer.settings.palette !== settings.palette) {
     visualizer.applyPalette(settings.palette);
   }

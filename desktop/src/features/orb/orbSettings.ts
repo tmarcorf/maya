@@ -23,6 +23,7 @@ export const ORB_SETTINGS_DEFAULTS: OrbVisualSettings = {
   glow: 1,
   bloom: 0.9,
   sensitivity: 1,
+  resolution: 1.5,
   palette: "ember",
 };
 
@@ -43,6 +44,7 @@ export const ORB_SLIDERS: SliderSpec[] = [
   { key: "speed", label: "Velocidade", min: 0, max: 3, step: 0.05, hint: "rotação e evolução" },
   { key: "glow", label: "Brilho", min: 0, max: 2, step: 0.05, hint: "intensidade das flares" },
   { key: "bloom", label: "Bloom", min: 0, max: 2.5, step: 0.05, hint: "halo luminoso" },
+  { key: "resolution", label: "Resolução", min: 1, max: 2, step: 0.25, hint: "nítidez vs desempenho" },
 ];
 
 function clamp(value: number, min: number, max: number): number {

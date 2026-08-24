@@ -7,6 +7,8 @@
  * cabeçalho, como antes.
  */
 
+import { memo } from "react";
+
 import type { ToolActivity } from "@/store/useChatStore";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -15,7 +17,11 @@ const STATUS_LABELS: Record<string, string> = {
   failed: "falhou",
 };
 
-export function ToolActivityCard({ activity }: { activity: ToolActivity }) {
+export const ToolActivityCard = memo(function ToolActivityCard({
+  activity,
+}: {
+  activity: ToolActivity;
+}) {
   return (
     <div className="border border-line bg-panel px-2.5 py-1.5 font-mono text-[0.7rem] text-dim">
       <div className="flex items-center gap-2">
@@ -37,4 +43,4 @@ export function ToolActivityCard({ activity }: { activity: ToolActivity }) {
       )}
     </div>
   );
-}
+});

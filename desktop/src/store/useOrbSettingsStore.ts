@@ -67,6 +67,7 @@ function snapshot(state: OrbSettingsState): OrbVisualSettings {
     glow: state.glow,
     bloom: state.bloom,
     sensitivity: state.sensitivity,
+    resolution: state.resolution,
     palette: state.palette,
   };
 }

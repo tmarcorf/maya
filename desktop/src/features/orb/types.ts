@@ -42,4 +42,6 @@ export interface OrbSettings {
   glow: number;
   bloom: number;
   sensitivity: number;
+  /** Cap do pixel ratio do canvas (1..2) — o maior custo por frame. */
+  resolution: number;
 }

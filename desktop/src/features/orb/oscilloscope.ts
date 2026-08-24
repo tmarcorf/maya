@@ -91,6 +91,11 @@ export class Oscilloscope {
   private level = 0;
   private targetLevel = 0;
   private active = false;
+  private running = false;
+
+  /** Mesmo loop do orb: setInterval a 60 Hz, não rAF (ver Visualizer). */
+  private static readonly RENDER_INTERVAL_MS = 1000 / 60;
+  private timerId = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -99,7 +104,7 @@ export class Oscilloscope {
       alpha: true,
       powerPreference: "high-performance",
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1);
@@ -186,11 +191,15 @@ export class Oscilloscope {
       }
     }
     this.targetLevel = levels.level ?? Math.max(levels.input, levels.output);
+
+    // Histerese contra chacoalho de nível: só acorda o loop com sinal real.
+    if (!this.running && this.targetLevel > 0.02) this.start();
   }
 
   /** Só desenha quando a Polaris está falando; fora disso decai para plano. */
   setActive(active: boolean): void {
     this.active = active;
+    if (active) this.start();
   }
 
   /** A cor do sul do orb (palette.bottom), trocada quando a paleta muda. */
@@ -208,11 +217,18 @@ export class Oscilloscope {
   }
 
   start(): void {
-    this.renderer.setAnimationLoop(() => this.frame());
+    if (this.running) return;
+    this.running = true;
+    // setInterval e não rAF — o display de 180 Hz faria o compositor rodar
+    // um BeginFrame por vblank (ver Visualizer.RENDER_INTERVAL_MS).
+    this.timerId = window.setInterval(() => this.frame(), Oscilloscope.RENDER_INTERVAL_MS);
   }
 
   stop(): void {
-    this.renderer.setAnimationLoop(null);
+    if (!this.running) return;
+    this.running = false;
+    clearInterval(this.timerId);
+    this.timerId = 0;
   }
 
   private frame(): void {
@@ -227,6 +243,14 @@ export class Oscilloscope {
     const target = this.active ? this.targetLevel : 0;
     const rate = target > this.level ? 0.25 : 0.09;
     this.level += (target - this.level) * rate;
+
+    // Inativo e já na linha plana: congela o loop — o último frame desenhou o
+    // traço estático, e retomar deixa o frame seguinte idêntico. Acorda via
+    // `setActive(true)` ou `ingest` com sinal acima da histerese.
+    if (!this.active && this.level < 0.01) {
+      this.stop();
+      return;
+    }
 
     const trace = traceFromSpectrum(this.spectrum, this.phases, this.level, TRACE_POINTS);
     for (const layer of this.layers) {

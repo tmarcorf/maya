@@ -81,6 +81,7 @@ export class Visualizer {
     glow: 1,
     bloom: 0.9,
     sensitivity: 1,
+    resolution: 1.5,
     palette: "ember",
   };
 
@@ -105,17 +106,44 @@ export class Visualizer {
   private fpsClock = 0;
   private pendingCapture: ((blob: Blob | null) => void) | null = null;
 
+  /**
+   * O loop é um setInterval de 60 Hz — de propósito, não rAF. O display
+   * entrega 180 Hz e o rAF registrado faz o compositor do Chromium rodar um
+   * BeginFrame a cada vblank: ~0.74 ms de CPU nativa na thread principal por
+   * rAF, mesmo quando o código não renderiza (medido: ~133% de 1 core com o
+   * render já capado a 60 fps). Sem rAF registrado, o Chromium só roda
+   * BeginFrame quando o canvas fica dirty — 1× por render, não 3× por vblank.
+   * O dt do Timer mede o tempo real, então o jitter do setInterval não
+   * acelera nem congela nada: a animação fica contínua a 60 Hz por ~1/7 do
+   * custo original (180 rAF/s) — e os envelopes do áudio voltam à cadência
+   * de 60 Hz do design, que rodava 3× mais rápido por conta do display.
+   */
+  private static readonly RENDER_INTERVAL_MS = 1000 / 60;
+  private timerId = 0;
+
+  /**
+   * Cap do pixel ratio. 1.5 é o equilíbrio: 4×→2.25× pixels e ~44% menos
+   * fragmento em todos os passes do composer, imperceptível com o bloom.
+   */
+  private _dprCap = 1.5;
+
+  /** Cap atual — getter público para o `applyOrbSettings` deduplicar. */
+  get dprCap(): number {
+    return this._dprCap;
+  }
+
   constructor(canvas: HTMLCanvasElement, container: HTMLElement) {
     this.canvas = canvas;
     this.container = container;
 
     this.renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: true,
+      // MSAA é desperdício: o bloom do composer já borra o buffer inteiro.
+      antialias: false,
       powerPreference: "high-performance",
       stencil: false,
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.dprCap));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.15;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -147,6 +175,9 @@ export class Visualizer {
     this.grade = new ShaderPass(GradeShader);
     this.composer.addPass(this.grade);
     this.composer.addPass(new OutputPass());
+    // O composer captura o ratio na construção; sincronizar explicitamente
+    // para os targets nascerem com o cap (1.5), não com o DPR do display.
+    this.composer.setPixelRatio(this.renderer.getPixelRatio());
 
     this.applyPalette("ember");
 
@@ -206,11 +237,24 @@ export class Visualizer {
     const height = this.container.clientHeight || window.innerHeight;
     if (width === 0 || height === 0) return;
 
+    // Janela arrastada para outro display: reaproxima o cap na hora.
+    const ratio = Math.min(window.devicePixelRatio, this.dprCap);
+    if (this.renderer.getPixelRatio() !== ratio) {
+      this.renderer.setPixelRatio(ratio);
+      this.composer.setPixelRatio(ratio);
+    }
+
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
 
     this.renderer.setSize(width, height, false);
     this.composer.setSize(width, height);
+  }
+
+  /** Ajusta o cap do pixel ratio (slider "Resolução" dos ajustes). */
+  setResolution(cap: number): void {
+    this._dprCap = Math.min(2, Math.max(1, cap));
+    this.resize();
   }
 
   /** Resolves with a PNG Blob captured from the next rendered frame. */
@@ -222,15 +266,19 @@ export class Visualizer {
 
   start(audio: AudioSource): void {
     this.audio = audio;
-    this.renderer.setAnimationLoop(() => this.frame());
+    if (this.timerId) return; // idempotente (StrictMode monta/desmonta duas vezes)
+    // setInterval e não rAF — ver RENDER_INTERVAL_MS.
+    this.timerId = window.setInterval(() => this.frame(), Visualizer.RENDER_INTERVAL_MS);
   }
 
   stop(): void {
-    this.renderer.setAnimationLoop(null);
+    clearInterval(this.timerId);
+    this.timerId = 0;
   }
 
   private frame(): void {
     if (!this.audio) return;
+
     this.timer.update();
     const dt = Math.min(this.timer.getDelta(), 1 / 20);
 

@@ -37,6 +37,10 @@ export interface ToolActivity {
 
 const STORAGE_KEY = "polaris.chat.v1";
 const MAX_MESSAGES = 200;
+// Atividades de ferramenta: eventos raros (uma por chamada), cap mais folgado
+// que as mensagens — nunca chegam perto, mas o DOM fica limitado de qualquer
+// jeito em sessão longa.
+const MAX_TOOLS = 100;
 
 // Bookkeeping do streaming por turno (não-reativo de propósito): o turno do
 // agente é identificado pelo `turnId` do protocolo; o texto que chega é
@@ -163,9 +167,10 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
   addUserTranscript: (text, ts) => {
     if (!text.trim()) return;
-    set((state) => ({
-      messages: [...state.messages, { id: newMessageId(), role: "user", text, ts, final: true }],
-    }));
+    set((state) => {
+      const message: ChatMessage = { id: newMessageId(), role: "user", text, ts, final: true };
+      return { messages: [...state.messages, message].slice(-MAX_MESSAGES) };
+    });
     persist(get().messages);
   },
 
@@ -174,9 +179,9 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       const activeId = activeSegments.get(turnId);
       if (activeId && state.messages.some((m) => m.id === activeId)) {
         return {
-          messages: state.messages.map((m) =>
-            m.id === activeId ? { ...m, text: m.text + delta } : m,
-          ),
+          messages: state.messages
+            .map((m) => (m.id === activeId ? { ...m, text: m.text + delta } : m))
+            .slice(-MAX_MESSAGES),
         };
       }
       // Novo segmento: o primeiro herda o turnId; os seguintes ganham
@@ -188,12 +193,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         nextSegment.set(turnId, (nextSegment.get(turnId) ?? 1) + 1);
       }
       activeSegments.set(turnId, id);
-      return {
-        messages: [
-          ...state.messages,
-          { id, role: "agent", text: delta, ts, final: false },
-        ],
-      };
+      const message: ChatMessage = { id, role: "agent", text: delta, ts, final: false };
+      return { messages: [...state.messages, message].slice(-MAX_MESSAGES) };
     });
   },
 
@@ -219,9 +220,9 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             ? text.slice(sealedPrefix.length)
             : text;
         return {
-          messages: state.messages.map((m) =>
-            m.id === activeId ? { ...m, text: finalText, final: true } : m,
-          ),
+          messages: state.messages
+            .map((m) => (m.id === activeId ? { ...m, text: finalText, final: true } : m))
+            .slice(-MAX_MESSAGES),
         };
       });
       activeSegments.delete(turnId);
@@ -262,7 +263,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
               status: event.status,
               ts: event.ts,
             },
-          ],
+          ].slice(-MAX_TOOLS),
         };
       }
       // `ts` é o instante em que a ferramenta apareceu, não o da última
@@ -278,7 +279,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         emoji: event.emoji || next[index].emoji,
         status: event.status,
       };
-      return { messages, toolActivities: next };
+      return { messages, toolActivities: next.slice(-MAX_TOOLS) };
     });
   },
 
