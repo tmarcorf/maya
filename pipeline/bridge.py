@@ -15,9 +15,9 @@ the LLM response boundary frames without re-pushing them) but downstream of
 the TTS service (which re-emits them along with the TTS stream). In this
 position ``agent_text`` deltas come from ``TTSTextFrame`` — note that the
 ElevenLabs provider sets ``push_text_frames=False`` and never emits it, so
-the agent text events are unavailable there; kokoro (default) and Qwen3
-work. The ``BotStartedSpeakingFrame``/``BotStoppedSpeakingFrame`` copies
-emitted by the output transport still arrive (upstream direction).
+the agent text events are unavailable there; kokoro (the default) works.
+The ``BotStartedSpeakingFrame``/``BotStoppedSpeakingFrame`` copies emitted
+by the output transport still arrive (upstream direction).
 
 Protocol (JSON lines, one object per WebSocket frame; ``ts`` = epoch ms):
 

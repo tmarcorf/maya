@@ -18,7 +18,7 @@ Você  ──fala──▶  PIPECAT (processo 1)                HERMES AGENT (pr
                   ├─ sessão de voz                  ──▶ └─ API server (OpenAI-compatível)
                   │      streaming SSE ◀────────────────┘
                   ├─ chunks → LLMTextFrame
-                  ├─ TTS (Kokoro local / Qwen3-TTS local GPU / ElevenLabs nuvem, incremental)
+                  ├─ TTS (Kokoro local / ElevenLabs nuvem, incremental)
                   └─ reprodução (speaker)
 ```
 
@@ -51,8 +51,8 @@ LLMUserAggregator        VAD (Silero) + turn detection; junta a fala do usuário
 HermesLLMService         POST /v1/chat/completions (streaming SSE via httpx)
     │                       emite LLMFullResponseStartFrame → LLMTextFrame* → LLMFullResponseEndFrame
     ▼
-KokoroTTSService         TTS local (ou Qwen3TTSService local GPU, ou ElevenLabsTTSService na
-    │                       nuvem, via TTS_PROVIDER); agrega por sentença e sintetiza incrementalmente
+KokoroTTSService         TTS local (ou ElevenLabsTTSService na nuvem, via
+    │                       TTS_PROVIDER); agrega por sentença e sintetiza incrementalmente
     │
     ▼
 transport.output()       reprodução no speaker
@@ -97,7 +97,7 @@ A ordem vem do exemplo oficial do Pipecat (`06a-voice-agent-local.py`) e da spec
 ```
 maya/
 ├── app.py                      # entrypoint: config → health check → runner
-├── pyproject.toml              # deps: pipecat-ai[kokoro,local,whisper,elevenlabs]>=1.4,<2 + qwen-tts + libs NVIDIA CUDA 12 + dev
+├── pyproject.toml              # deps: pipecat-ai[kokoro,local,whisper,elevenlabs]>=1.4,<2 + libs NVIDIA CUDA 12 + dev
 ├── requirements.txt            # espelha o pyproject p/ instalação de primeira execução
 ├── maya.sh                  # sobe hermes gateway + agente (exporta LD_LIBRARY_PATH das libs CUDA)
 ├── README.md                   # visão do usuário (instalação, execução, troubleshooting)
@@ -141,9 +141,8 @@ Dataclass `@dataclass(frozen=True)` `Settings` + `load_settings()` (via `python-
 
 Validações embutidas:
 - `HERMES_API_KEY` vazio → `ValueError` (fail-fast).
-- `TTS_PROVIDER` fora de `kokoro`/`elevenlabs`/`qwen3` → `ValueError`.
+- `TTS_PROVIDER` fora de `kokoro`/`elevenlabs` → `ValueError`.
 - `TTS_PROVIDER=elevenlabs` exige `ELEVENLABS_API_KEY` e `ELEVENLABS_VOICE_ID` (fail-fast — o serviço do pipecat só valida a chave no handshake do WebSocket).
-- `TTS_PROVIDER=qwen3` valida `QWEN3_DEVICE` (`cuda`/`cuda:<n>`/`cpu`/`auto`), `QWEN3_DTYPE` (`float16`/`bfloat16`/`float32`), `QWEN3_ATTN_IMPLEMENTATION` (`sdpa`/`flash_attention_2`), `QWEN3_MAX_NEW_TOKENS`/`QWEN3_TOP_P` numéricos, e a regra de checkpoint: `-Base` exige `QWEN3_REF_AUDIO` (arquivo local existente ou URL) e CustomVoice rejeita `QWEN3_REF_AUDIO` (fail-fast antes do import pesado do torch e do download).
 - `STT_LANGUAGE` vazio → `None` (auto-detecção do Whisper).
 - `HERMES_SESSION_ID` vazio → gera `voice-session-<uuid>`.
 
@@ -209,7 +208,7 @@ data: [DONE]
 - `build_transport(settings)` — `LocalAudioTransport` (import **lazy** por causa do pyaudio) com `audio_in_enabled`/`audio_out_enabled` e índices de dispositivo opcionais.
 - `build_services(settings, *, transport, stt, llm, tts, context, session_manager)` — todos os componentes **injetáveis** (testes passam fakes sem carregar modelos):
   - `WhisperSTTService(device=..., compute_type=..., settings=WhisperSTTService.Settings(model=..., language=..., no_speech_prob=0.4))` — usa `settings=` porque `model=`/`language=`/`no_speech_prob=` no construtor estão **deprecados** desde 1.7;
-  - `_build_tts_service(settings)` — único ponto de troca de TTS: `TTS_PROVIDER=kokoro` → `KokoroTTSService(settings=KokoroTTSService.Settings(voice=..., language=...), sample_rate=24000)`; `TTS_PROVIDER=elevenlabs` → `ElevenLabsTTSService(api_key=..., settings=ElevenLabsTTSService.Settings(voice=..., model=..., language=...), sample_rate=24000)` (WebSocket `multi-stream-input`, streaming incremental; import lazy); `TTS_PROVIDER=qwen3` → `Qwen3TTSService` customizado (`pipeline/qwen3_tts.py`): carrega o modelo PyTorch na **construção** (fail-fast no startup), gera uma sentença por chamada via `asyncio.to_thread` + lock anti-sobreposição de barge-in, e reamostra (SOXR) o `sr` nativo do modelo para 24000 (qwen-tts não tem streaming real de input; import lazy). `push_start_frame`/`push_stop_frames` já são defaults; agregação `SENTENCE` é default do `TTSService`;
+  - `_build_tts_service(settings)` — único ponto de troca de TTS: `TTS_PROVIDER=kokoro` → `KokoroTTSService(settings=KokoroTTSService.Settings(voice=..., language=...), sample_rate=24000)`; `TTS_PROVIDER=elevenlabs` → `ElevenLabsTTSService(api_key=..., settings=ElevenLabsTTSService.Settings(voice=..., model=..., language=...), sample_rate=24000)` (WebSocket `multi-stream-input`, streaming incremental; import lazy). `push_start_frame`/`push_stop_frames` já são defaults; agregação `SENTENCE` é default do `TTSService`;
   - `_tts_language()`: `pt`/`pt-br` → `Language.PT_BR`; qualquer outra string vira `Language(value)`. No ElevenLabs vira `language_code=pt` na URL do WS (modelos multilingual).
 - `build_pipeline(..., vad_analyzer, wake_word_enabled, wake_phrases, wake_timeout)` — com wake word habilitado, monta `LLMUserAggregatorParams(user_turn_strategies=UserTurnStrategies(start=[WakePhraseUserTurnStartStrategy(phrases=..., timeout=...), *default_user_turn_start_strategies()]))`: a strategy fica **primeira** e bloqueia turnos enquanto dorme (padrão documentado do pipecat; `stop` fica `None` → defaults preservados). `_expand_wake_phrases()` normaliza cada frase (minúsculas, sem pontuação) e gera variantes: `maya↔maia` (o Whisper transcreve "maia") e sem acentos ("ta" ↔ "tá"). A normalização é obrigatória: o `WakePhraseUserTurnStartStrategy` do pipecat remove a pontuação da transcrição, mas monta os regex a partir das frases como estão — uma frase com vírgula/`?` jamais casaria; handlers `on_wake_phrase_detected`/`on_wake_phrase_timeout` logam em INFO.
 - `build_pipeline(transport, stt, llm, tts, context, *, vad_analyzer=_UNSET)` — monta a ordem da §2.1; `vad_analyzer=None` nos testes evita carregar o modelo Silero (que é bundled no wheel, sem download).
@@ -245,7 +244,7 @@ Ver §7.
 
 ### 5.2 Streaming e TTS incremental
 
-Chunks de texto chegam como `LLMTextFrame`s; o `TTSService` (com `TextAggregationMode.SENTENCE` default) acumula até o fim de uma sentença e então sintetiza — a voz começa **antes** do fim da resposta do Hermes. O flush final acontece no `LLMFullResponseEndFrame`. Kokoro/ElevenLabs entregam o áudio em chunks incrementais; o Qwen3-TTS (sem streaming real de input) gera a sentença inteira numa chamada na GPU antes de tocar (ver §8 "Voz do TTS").
+Chunks de texto chegam como `LLMTextFrame`s; o `TTSService` (com `TextAggregationMode.SENTENCE` default) acumula até o fim de uma sentença e então sintetiza — a voz começa **antes** do fim da resposta do Hermes. O flush final acontece no `LLMFullResponseEndFrame`. Kokoro/ElevenLabs entregam o áudio em chunks incrementais (ver §8 "Voz do TTS").
 
 ### 5.3 Sessão
 
@@ -282,22 +281,12 @@ Status ≠ 200 → log do corpo (truncado em 300 chars) + `ErrorFrame` upstream 
 | `STT_DEVICE` | `cpu` | `cpu`/`cuda`/`auto` |
 | `STT_COMPUTE_TYPE` | `int8` | Precisão do ctranslate2 |
 | `STT_LANGUAGE` | `pt` | Vazio = auto-detecção |
-| `TTS_PROVIDER` | `kokoro` | `kokoro` (local), `qwen3` (local, GPU NVIDIA) ou `elevenlabs` (nuvem) |
+| `TTS_PROVIDER` | `kokoro` | `kokoro` (local) ou `elevenlabs` (nuvem) |
 | `TTS_LANGUAGE` | `pt` | `pt`/`pt-br` → `Language.PT_BR` |
 | `TTS_VOICE` | `pf_dora` | Vozes pt-BR: `pf_dora`, `pm_alex`, `pm_santa` |
 | `ELEVENLABS_API_KEY` | *(vazio)* | Obrigatória com `TTS_PROVIDER=elevenlabs` |
 | `ELEVENLABS_VOICE_ID` | *(vazio)* | Obrigatória com `TTS_PROVIDER=elevenlabs` (premade ou clonada) |
 | `ELEVENLABS_MODEL_ID` | `eleven_flash_v2_5` | Realtime/multilingual; sobrescreva se quiser outro modelo |
-| `QWEN3_MODEL` | `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` | Checkpoint do HF Hub; `...-0.6B-Base` para clonagem de voz |
-| `QWEN3_DEVICE` | `cuda` | `cuda`, `cuda:<n>`, `cpu` (lento) ou `auto` |
-| `QWEN3_DTYPE` | `bfloat16` | `float16`, `bfloat16` ou `float32` |
-| `QWEN3_SPEAKER` | `Ryan` | Vozes CustomVoice: Vivian, Serena, Uncle_Fu, Dylan, Eric, Ryan, Aiden, Ono_Anna, Sohee |
-| `QWEN3_INSTRUCT` | *(vazio)* | Instrução de estilo em linguagem natural (ex.: "Fale devagar.") |
-| `QWEN3_REF_AUDIO` | *(vazio)* | Obrigatória com checkpoint `-Base`; áudio de referência ~3s (arquivo ou URL) |
-| `QWEN3_REF_TEXT` | *(vazio)* | Transcrição do áudio de referência; vazio = só timbre (x_vector_only_mode) |
-| `QWEN3_ATTN_IMPLEMENTATION` | *(vazio = sdpa)* | Ou `flash_attention_2` (requer flash-attn instalado) |
-| `QWEN3_MAX_NEW_TOKENS` | `4096` | Máximo de tokens de áudio gerados por sentença |
-| `QWEN3_TOP_P` | *(vazio)* | Default do modelo; número em (0-1] |
 | `WAKE_WORD_ENABLED` | `false` | `true` exige wake phrase (transcrição) antes de cada conversa |
 | `WAKE_WORD_PHRASES` | `E aí, Maya;Ei, Maya;Maya, tá aí?` | Lista separada por `;`; pontuação, acentos e "Maya"/"Maia" são normalizados automaticamente |
 | `WAKE_WORD_TIMEOUT` | `10` | Segundos de inatividade até voltar a dormir |
@@ -368,8 +357,6 @@ Kokoro: `.env` → `TTS_VOICE=pm_alex` (ou `pf_dora`/`pm_santa`). Outras vozes d
 
 ElevenLabs: `.env` → `TTS_PROVIDER=elevenlabs` + `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` (voz premade ou clonada; o id é um hash tipo `21m00Tcm4TlvDq8ikWAM`).
 
-Qwen3-TTS: `.env` → `TTS_PROVIDER=qwen3` + `QWEN3_SPEAKER` (9 vozes premium; nenhuma nativa em PT — fala com sotaque) + `QWEN3_INSTRUCT` opcional para estilo. Clonagem de voz: `QWEN3_MODEL=Qwen/Qwen3-TTS-12Hz-0.6B-Base` + `QWEN3_REF_AUDIO` (~3s) + `QWEN3_REF_TEXT`. Requer GPU NVIDIA CUDA; o modelo baixa ~1,5–2 GB do HF Hub na 1ª execução e carrega no startup; síntese por sentença em GPU de consumo é mais lenta que tempo real (RTF > 1) — para latência mínima, use ElevenLabs. Validações de voz: o falante é conferido contra `get_supported_speakers()` na construção do serviço.
-
 ### Idioma
 - STT: `STT_LANGUAGE=pt` fixo, ou vazio para auto-detecção. O mapeamento Whisper é feito por `Language(settings.stt_language)` em `voice_pipeline.build_services`.
 - TTS: `_tts_language()` em `pipeline/voice_pipeline.py` — adicione mapeamentos ali (ex.: `"en"` → `Language.EN_US`).
@@ -428,7 +415,7 @@ O transport é isolado em `build_transport()` e injetado em `run_voice_agent(set
 **Não há system prompt no Maya** — de propósito: o Hermes é a autoridade agêntica (spec §24). Ajustes de personalidade devem ser feitos no profile/config do Hermes (`~/.hermes/`), não no Pipecat. Evite adicionar `context.add_message({"role": "developer", ...})` — a mensagem entraria em duplicidade com o prompt do agente e poluiria a sessão.
 
 ### Trocar STT/TTS por outro serviço
-`build_services()` é o único lugar: substitua `WhisperSTTService` por qualquer `SegmentedSTTService` do Pipecat e o conteúdo de `_build_tts_service()` por outro `TTSService` (ou adicione um branch novo no `TTS_PROVIDER`). O restante do pipeline (agregadores, ponte, runner) permanece. Para um serviço TTS **local customizado**, `pipeline/qwen3_tts.py` é o padrão a seguir: subclasse de `TTSService` com `run_tts()` (yield de `TTSAudioRawFrame` + `ErrorFrame`), `Settings` aninhada, imports pesados isolados numa função de módulo (`_load_qwen_model`) para os testes fazerem monkeypatch, geração bloqueante via `asyncio.to_thread` + lock, e reamostragem SOXR do `sr` nativo para `sample_rate`.
+`build_services()` é o único lugar: substitua `WhisperSTTService` por qualquer `SegmentedSTTService` do Pipecat e o conteúdo de `_build_tts_service()` por outro `TTSService` (ou adicione um branch novo no `TTS_PROVIDER`). O restante do pipeline (agregadores, ponte, runner) permanece. Para um serviço TTS **local customizado**, o padrão é uma subclasse de `TTSService` com `run_tts()` (yield de `TTSAudioRawFrame` + `ErrorFrame`), `Settings` aninhada, imports pesados isolados numa função de módulo (testável via monkeypatch), geração bloqueante via `asyncio.to_thread` + lock, e reamostragem SOXR do `sr` nativo para `sample_rate`.
 
 ### Atualizar o Pipecat
 Pin atual: `pipecat-ai>=1.4.0,<2.0` (instalado 1.7.0). O Pipecat muda rápido — antes de subir versão: rode `uv run pytest -q`, confira `uv run python -c "import app"` e revise deprecações no changelog (já pegamos `PipelineTask`, `WhisperSTTService(model=...)`, `KokoroTTSService(voice_id=...)`).
@@ -446,7 +433,6 @@ Pin atual: `pipecat-ai>=1.4.0,<2.0` (instalado 1.7.0). O Pipecat muda rápido �
 | STT | `pipecat.services.whisper.stt` → `WhisperSTTService` | Usar `settings=WhisperSTTService.Settings(model=..., language=..., no_speech_prob=...)`; `device=`/`compute_type=` são args do construtor |
 | TTS | `pipecat.services.kokoro.tts` → `KokoroTTSService` | `settings=KokoroTTSService.Settings(voice=..., language=...)`; `sample_rate=24000`; agregação `SENTENCE` default do `TTSService`; modelos em `~/.cache/pipecat/kokoro-onnx/` |
 | TTS (alternativo) | `pipecat.services.elevenlabs.tts` → `ElevenLabsTTSService` | `api_key=` (kwarg obrigatório) + `settings=ElevenLabsTTSService.Settings(voice=<voice_id>, model=..., language=...)`; WebSocket `multi-stream-input` com `output_format=pcm_24000`; `auto_mode=true` com agregação `SENTENCE`; não usa `voice_id=`/`model=` diretos (deprecados); chave só é validada no handshake |
-| TTS (alternativo, local) | `pipeline.qwen3_tts` → `Qwen3TTSService` (customizado; `qwen-tts` 0.1.1) | `Qwen3TTSModel.from_pretrained(model_id, device_map, dtype, attn_implementation)` + `generate_custom_voice(text, speaker, language, instruct)` / `generate_voice_clone(text, language, ref_audio, ref_text, ...)` → `(wavs, sr)`; sem streaming real de input (buffer-and-generate por sentença); `get_supported_speakers()` retorna nomes em **minúsculas** (o serviço normaliza case-insensitive); cache HF Hub `~/.cache/huggingface`; o serviço desliga `torch.backends.cudnn` (conflito libcudnn cu12/cu13: `CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH` em conv1d do vocoder) |
 | Context | `pipecat.processors.aggregators.llm_context` → `LLMContext` + `pipecat.processors.aggregators.llm_response_universal` → `LLMContextAggregatorPair` | `LLMStandardMessage` é alias de `ChatCompletionMessageParam` do OpenAI — mensagens já são compatíveis |
 | Runner | `pipecat.pipeline.worker` → `PipelineWorker` + `pipecat.workers.runner` → `WorkerRunner` | `PipelineTask` deprecado desde 1.3.0 |
 | Frames | `pipecat.frames.frames` → `LLMRunFrame`, `LLMContextFrame`, `LLMTextFrame`, `LLMFullResponseStart/EndFrame`, `InterruptionFrame`, `ErrorFrame`, `LLMServiceMetadataFrame` | `LLMServiceMetadataFrame` é emitido pelo serviço no start (presente nos testes) |
@@ -490,7 +476,6 @@ uvx ruff check .               # lint
 |---|---|
 | Modelo Whisper (`small` ≈ 465 MB) | cache do ctranslate2 (`~/.cache/huggingface/`) — baixa no 1º turno |
 | Kokoro (`kokoro-v1.0.onnx` ≈ 325 MB + vozes ≈ 28 MB) | `~/.cache/pipecat/kokoro-onnx/` — baixa no start do TTS |
-| Qwen3-TTS 0.6B (≈ 1,5–2 GB) | `~/.cache/huggingface/` — baixa no start quando `TTS_PROVIDER=qwen3` |
 
 **Cuidado**: se o processo for morto no meio do download do Kokoro, o arquivo fica corrompido (`INVALID_PROTOBUF` no start). Solução: apagar os arquivos de `~/.cache/pipecat/kokoro-onnx/` e rodar de novo.
 

@@ -110,10 +110,9 @@ def _expand_wake_phrases(phrases: list[str]) -> list[str]:
 def _build_tts_service(settings: Settings):
     """Instantiate the TTS service selected by TTS_PROVIDER.
 
-    Kokoro runs locally (CPU); Qwen3-TTS also runs locally but needs a
-    CUDA GPU; ElevenLabs streams audio over a WebSocket (multi-stream-input)
-    and needs internet + an API key. Imported lazily so tests never pay for
-    the module import.
+    Kokoro runs locally (CPU); ElevenLabs streams audio over a WebSocket
+    (multi-stream-input) and needs internet + an API key. Imported lazily so
+    tests never pay for the module import.
     """
     if settings.tts_provider == "elevenlabs":
         from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
@@ -127,25 +126,6 @@ def _build_tts_service(settings: Settings):
                 # language_code=pt to the WS URL. Ignored (with a warning)
                 # if a non-multilingual model is configured.
                 language=_tts_language(settings),
-            ),
-            sample_rate=VOICE_AGENT_SAMPLE_RATE,
-        )
-    if settings.tts_provider == "qwen3":
-        from pipeline.qwen3_tts import Qwen3TTSService
-
-        return Qwen3TTSService(
-            model_id=settings.qwen3_model,
-            device=settings.qwen3_device,
-            dtype=settings.qwen3_dtype,
-            attn_implementation=settings.qwen3_attn_implementation,
-            max_new_tokens=settings.qwen3_max_new_tokens,
-            top_p=settings.qwen3_top_p,
-            settings=Qwen3TTSService.Settings(
-                voice=settings.qwen3_speaker,
-                language=_tts_language(settings),
-                instruct=settings.qwen3_instruct or None,
-                ref_audio=settings.qwen3_ref_audio or None,
-                ref_text=settings.qwen3_ref_text or None,
             ),
             sample_rate=VOICE_AGENT_SAMPLE_RATE,
         )

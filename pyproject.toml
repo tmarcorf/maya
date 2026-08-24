@@ -9,9 +9,6 @@ dependencies = [
     "python-dotenv>=1.2.2",
     # Desktop bridge: local WS server for live events + control commands.
     "websockets>=17,<18",
-    # Qwen3-TTS local (TTS_PROVIDER=qwen3). Pulls torch/torchaudio (CUDA
-    # wheels on Linux) and pins transformers/accelerate on its own.
-    "qwen-tts>=0.1.1,<0.2",
     # CUDA runtime libs: ctranslate2/faster-whisper needs them for
     # STT_DEVICE=cuda but does not bundle them — run.sh exposes the wheel
     # lib dirs via LD_LIBRARY_PATH.

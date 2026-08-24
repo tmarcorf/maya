@@ -12,7 +12,7 @@ You  ──speak──▶  PIPECAT                      HERMES AGENT (separate p
                   ├─ voice session         ──▶ └─ http://127.0.0.1:8642/v1
                   │      streaming SSE ◀────────┘  (POST /v1/chat/completions)
                   ├─ chunks → LLMTextFrame
-                  ├─ TTS (Kokoro local / Qwen3-TTS local GPU / ElevenLabs cloud)
+                  ├─ TTS (Kokoro local / ElevenLabs cloud)
                   └─ playback (speaker)
 ```
 
@@ -25,7 +25,7 @@ Pipecat doesn't duplicate anything Hermes does — Maya is essentially the bridg
 
 ### End-to-end streaming
 
-Hermes' text arrives over SSE and each chunk becomes an `LLMTextFrame`, which Pipecat forwards to the TTS (Kokoro, Qwen3-TTS, or ElevenLabs, via `TTS_PROVIDER`) with **sentence-level aggregation** (native to `TTSService`). TTS starts as soon as the first sentence is complete — no waiting for the full response.
+Hermes' text arrives over SSE and each chunk becomes an `LLMTextFrame`, which Pipecat forwards to the TTS (Kokoro or ElevenLabs, via `TTS_PROVIDER`) with **sentence-level aggregation** (native to `TTSService`). TTS starts as soon as the first sentence is complete — no waiting for the full response.
 
 ### Session
 
@@ -48,7 +48,6 @@ If you start speaking while Maya is responding, Pipecat's VAD fires an `Interrup
   sudo apt-get install -y portaudio19-dev
   ```
 - Microphone and audio output
-- **NVIDIA GPU with CUDA** (required only for `TTS_PROVIDER=qwen3`; Kokoro and ElevenLabs work without it)
 - [Hermes Agent](https://github.com/NousResearch/hermes-agent) installed (CLI `hermes`)
 
 ## Installation
@@ -60,12 +59,11 @@ uv pip install -r requirements.txt      # creates/fills the venv with all deps
 cp .env.example .env                    # then edit HERMES_API_KEY
 ```
 
-Dependencies: `pipecat-ai[whisper,kokoro,local,elevenlabs]`, `python-dotenv`, `loguru`, `httpx`, NVIDIA CUDA 12 libs (`nvidia-cublas-cu12`, `nvidia-cudnn-cu12`, `nvidia-cuda-runtime-cu12`), `qwen-tts` (pulls torch/torchaudio ~2.5 GB and pins transformers/accelerate) (dev: `pytest`, `pytest-asyncio`, `respx`).
+Dependencies: `pipecat-ai[whisper,kokoro,local,elevenlabs]`, `python-dotenv`, `loguru`, `httpx`, NVIDIA CUDA 12 libs (`nvidia-cublas-cu12`, `nvidia-cudnn-cu12`, `nvidia-cuda-runtime-cu12`) (dev: `pytest`, `pytest-asyncio`, `respx`).
 
 On first run the models are downloaded automatically:
 - Whisper (faster-whisper) into the ctranslate2 cache;
-- Kokoro (`kokoro-v1.0.onnx` + voices) into `~/.cache/pipecat/kokoro-onnx/`;
-- Qwen3-TTS (~1.5–2 GB) into `~/.cache/huggingface` (only when `TTS_PROVIDER=qwen3`).
+- Kokoro (`kokoro-v1.0.onnx` + voices) into `~/.cache/pipecat/kokoro-onnx/`.
 
 ## Hermes
 
@@ -119,43 +117,6 @@ With `./maya.sh` running, you can inspect the bridge with:
 websocat ws://127.0.0.1:8686
 ```
 
-## Qwen3-TTS voice (local, GPU)
-
-Runs **Qwen3-TTS 0.6B** (Apache-2.0) locally on your NVIDIA GPU — no per-use cost, with quality above Kokoro, but **slower** (on consumer GPUs each sentence takes a few seconds to synthesize; the first utterance also pays the model-loading cost at startup). For minimal latency, stick with ElevenLabs.
-
-```env
-TTS_PROVIDER=qwen3
-QWEN3_MODEL=Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice   # or ...-0.6B-Base (voice cloning)
-QWEN3_DEVICE=cuda            # cuda, cuda:0, cpu or auto
-QWEN3_DTYPE=bfloat16         # float16, bfloat16 or float32
-QWEN3_SPEAKER=Ryan           # default voice (all listed below)
-QWEN3_INSTRUCT=              # optional style, e.g.: "Speak slowly and calmly."
-```
-
-CustomVoice voices (none are native Portuguese — they speak pt-BR with an accent):
-
-| Voice | Profile | Native language |
-|---|---|---|
-| Vivian | Young, clear female | Chinese |
-| Serena | Soft, gentle female | Chinese |
-| Uncle_Fu | Mature, velvety male | Chinese |
-| Dylan | Young male (Beijing) | Chinese |
-| Eric | Lively male (Chengdu) | Chinese |
-| Ryan | Dynamic, rhythmic male | English |
-| Aiden | Sunny American male | English |
-| Ono_Anna | Playful Japanese female | Japanese |
-| Sohee | Warm Korean female | Korean |
-
-**Voice cloning** (`-Base` model): clone a voice from a ~3s reference audio — this is the way to get a truly native Portuguese voice:
-
-```env
-QWEN3_MODEL=Qwen/Qwen3-TTS-12Hz-0.6B-Base
-QWEN3_REF_AUDIO=/path/to/ref.wav   # local file or URL (~3s)
-QWEN3_REF_TEXT=transcription of the audio     # empty = just the timbre, no transcription
-```
-
-Advanced options: `QWEN3_ATTN_IMPLEMENTATION` (empty = sdpa; or `flash_attention_2`, requires flash-attn installed), `QWEN3_MAX_NEW_TOKENS` (default 4096), `QWEN3_TOP_P`.
-
 ## Wake word
 
 Maya can stay "asleep" until it hears an activation phrase (detected in the Whisper transcription — no extra model):
@@ -189,10 +150,6 @@ The suite covers: configuration, pipeline creation, SSE parsing, chunk-to-frame 
 | `Library libcublas.so.12 is not found` | Run via `./maya.sh` (exposes the pip CUDA libs via `LD_LIBRARY_PATH`) or use `STT_DEVICE=cpu` |
 | No Kokoro audio | Check `~/.cache/pipecat/kokoro-onnx/` (model + voices); test `TTS_VOICE=pm_alex` |
 | No ElevenLabs audio (log shows TTS watchdog error) | **Library** voices (e.g. Fernanda) require a paid plan: the API returns `402 paid_plan_required` on free. On free, only **premade** voices work via API — test with `curl -X POST https://api.elevenlabs.io/v1/text-to-speech/{voice}?model_id=eleven_flash_v2_5 -H "xi-api-key: $ELEVENLABS_API_KEY" -H "Content-Type: application/json" -d '{"text":"hi"}'` |
-| No Qwen3 audio | Check `nvidia-smi` (GPU visible?) and the "Loading Qwen3-TTS model..." log line; the model download (~1.5–2 GB) only happens on first run, to `~/.cache/huggingface` — offline machines fail at startup |
-| `SoX could not be found` warning on Qwen3 | Harmless — the SoX binary is only used by the 25 Hz tokenizer of the 1.7B models; the 0.6B (12 Hz) doesn't need it |
-| `CUDA out of memory` on Qwen3 | Reduce `QWEN3_MAX_NEW_TOKENS` (e.g. 2048) or use `QWEN3_DTYPE=float16` |
-| Slow first utterance from Qwen3 | Expected: the model loads at startup and synthesis on consumer GPUs is slower than real time (RTF > 1) — use ElevenLabs for minimal latency |
 | High latency | `STT_MODEL=base` (or `tiny`), `STT_COMPUTE_TYPE=int8`, and less silence time in the VAD |
 | Wake word doesn't trigger | Check `WAKE_WORD_ENABLED=true` and the phrases in `WAKE_WORD_PHRASES` (separated by `;`); punctuation, accents, and the "Maya"/"Maia" spellings are already normalized automatically — if it still doesn't wake, run with `LOG_LEVEL=DEBUG` and look at the Whisper transcriptions (`STT`/`wake phrase detected`) to see how it's transcribing the phrase |
 | Truncated/interrupted responses | Check the microphone (the VAD may be interpreting noise as barge-in) |
