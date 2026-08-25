@@ -1,5 +1,5 @@
-<div align="center">
 # Maya
+<div align="center">
 <img width="178" height="176" alt="maya" src="https://github.com/user-attachments/assets/df26c1d0-f49f-4a69-8b0a-366d06b3bd7b" />
 </div>
 
