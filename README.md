@@ -1,4 +1,6 @@
 # Maya
+<img width="178" height="176" alt="image" align="center" src="https://github.com/user-attachments/assets/359c5c2b-c33a-4525-b1e2-a1980a47bfc1" />
+
 
 Local voice assistant powered by **Pipecat** (voice, STT, TTS, streaming) and **Hermes Agent** (agentic brain: LLM, tools, terminal, browser, memory). Maya is the bridge between the two — you speak, Hermes thinks and executes, and Maya answers with voice, **without waiting for the full response to start speaking**.
 
