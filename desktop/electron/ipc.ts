@@ -17,6 +17,7 @@ const KNOWN_COMMANDS = new Set([
   "set_wake_word_enabled",
   "ping",
   "send_user_message",
+  "synthesize_word",
 ]);
 
 function isTrustedSender(event: IpcMainInvokeEvent): boolean {

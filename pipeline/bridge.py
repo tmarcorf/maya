@@ -591,12 +591,14 @@ class BridgeServer:
         session_manager: HermesSessionManager | None,
         snapshot: Callable[[], dict],
         queue_frames: Callable[[list[Frame]], Awaitable[None]] | None = None,
+        word_tts: object | None = None,
     ) -> None:
         self._port = port
         self._wake_controller = wake_controller
         self._session_manager = session_manager
         self._snapshot = snapshot
         self._queue_frames = queue_frames
+        self._word_tts = word_tts
         self._server: websockets.Server | None = None
         self._connection: websockets.ServerConnection | None = None
 
@@ -767,6 +769,53 @@ class BridgeServer:
                 # user_transcript; publica o texto digitado no mesmo fluxo.
                 await self.publish({"type": "user_transcript", "text": text})
                 await self._send_ack(connection, message.get("id"), ok=True)
+        elif cmd == "synthesize_word":
+            # Palavra de working: sintetiza com a voz da Maya FORA do pipeline
+            # (nada atravessa a máquina de estados de voz nem o espelho do
+            # chat) e devolve o WAV base64 para o app tocar.
+            text = str(message.get("text") or "").strip()
+            if not text:
+                await self._send_ack(
+                    connection,
+                    message.get("id"),
+                    ok=False,
+                    error={"code": "empty_text", "message": "Texto vazio."},
+                )
+            elif self._word_tts is None:
+                await self._send_ack(
+                    connection,
+                    message.get("id"),
+                    ok=False,
+                    error={
+                        "code": "not_available",
+                        "message": "Síntese de palavra indisponível neste provider.",
+                    },
+                )
+            else:
+                import base64
+
+                result = await self._word_tts.synthesize(text)
+                if result is None:
+                    await self._send_ack(
+                        connection,
+                        message.get("id"),
+                        ok=False,
+                        error={
+                            "code": "model_missing",
+                            "message": "Modelo Kokoro não encontrado em disco.",
+                        },
+                    )
+                else:
+                    wav_bytes, rate = result
+                    await self._send_ack(
+                        connection,
+                        message.get("id"),
+                        ok=True,
+                        data={
+                            "wav": base64.b64encode(wav_bytes).decode("ascii"),
+                            "rate": rate,
+                        },
+                    )
         else:
             await self._send_ack(
                 connection,

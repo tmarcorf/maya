@@ -355,6 +355,15 @@ async def run_voice_agent(
         conversation_id=settings.hermes_app_session_id,
     )
 
+    # Palavra de working com a voz da Maya: Kokoro avulso, fora do pipeline
+    # (o comando synthesize_word). ElevenLabs não suporta — a síntese avulsa
+    # fica indisponível (ack not_available) e o app segue sem fala.
+    word_tts = None
+    if settings.tts_provider == "kokoro":
+        from pipeline.word_tts import WordSynthesizer
+
+        word_tts = WordSynthesizer(settings)
+
     bridge_server = BridgeServer(
         port=settings.bridge_ws_port,
         wake_controller=wake_controller,
@@ -362,6 +371,7 @@ async def run_voice_agent(
         snapshot=observer.snapshot,
         # O comando send_user_message injeta texto no pipeline (chat).
         queue_frames=worker.queue_frames,
+        word_tts=word_tts,
     )
     observer.set_publisher(bridge_server.publish)
     transcript_observer.set_publisher(bridge_server.publish)

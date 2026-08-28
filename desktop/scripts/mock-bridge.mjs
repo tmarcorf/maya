@@ -157,6 +157,31 @@ function streamAgentText(reply = REPLY, turnId = null) {
   }, 110);
 }
 
+// Beep curto (WAV PCM 16-bit mono) para o synthesize_word do mock.
+function beepWav(seconds = 0.35, freq = 880, rate = 24000) {
+  const n = Math.floor(seconds * rate);
+  const data = Buffer.alloc(n * 2);
+  for (let i = 0; i < n; i++) {
+    const v = Math.round(Math.sin((2 * Math.PI * freq * i) / rate) * 0.2 * 32767);
+    data.writeInt16LE(v, i * 2);
+  }
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + data.length, 4);
+  header.write("WAVE", 8);
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20); // PCM
+  header.writeUInt16LE(1, 22); // mono
+  header.writeUInt32LE(rate, 24);
+  header.writeUInt32LE(rate * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(data.length, 40);
+  return Buffer.concat([header, data]);
+}
+
 function setVoice(voice) {
   state.voice = voice;
   broadcast({ type: "state", voice, wake: state.wake });
@@ -199,6 +224,16 @@ wss.on("connection", (socket) => {
       console.log(`[mock] wake word ${state.wake.enabled ? "ativada" : "desativada"}`);
     } else if (message.cmd === "ping") {
       send(socket, { type: "ack", id: message.id, ok: true, data: "pong" });
+    } else if (message.cmd === "synthesize_word") {
+      const text = String(message.text ?? "").trim();
+      if (!text) {
+        send(socket, { type: "ack", id: message.id, ok: false, error: { code: "empty_text", message: "Texto vazio." } });
+        return;
+      }
+      // Beep curto como WAV — o caminho de áudio do renderer é exercitado
+      // sem depender do Kokoro (no real, o backend devolve a voz da Maya).
+      send(socket, { type: "ack", id: message.id, ok: true, data: { wav: beepWav().toString("base64"), rate: 24000 } });
+      console.log(`[mock] synthesize_word: ${text}`);
     } else if (message.cmd === "send_user_message") {
       const text = String(message.text ?? "").trim();
       if (!text) {

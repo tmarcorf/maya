@@ -152,7 +152,8 @@ export type CommandName =
   | "get_state"
   | "set_wake_word_enabled"
   | "ping"
-  | "send_user_message";
+  | "send_user_message"
+  | "synthesize_word";
 
 export interface Command {
   id: number;
