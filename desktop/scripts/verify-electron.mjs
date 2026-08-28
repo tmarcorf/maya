@@ -18,7 +18,8 @@ const app = await _electron.launch({
   // verificação roda sem derrubar um app aberto — e sem tocar no histórico real.
   args: [".", "--user-data-dir=/tmp/maya-verify"],
   cwd: ROOT,
-  env: { ...process.env },
+  // O e2e testa contra o mock da bridge: o app não pode spawnar o backend real.
+  env: { ...process.env, MAYA_SKIP_BACKEND: "1" },
 });
 const win = await app.firstWindow();
 const errors = [];

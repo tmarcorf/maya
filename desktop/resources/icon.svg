@@ -1,7 +1,23 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#101113"/>
-  <circle cx="256" cy="256" r="152" fill="#17181b" stroke="#2a2c31" stroke-width="10"/>
-  <circle cx="256" cy="256" r="106" fill="#e0192f"/>
-  <path d="M256 200 L322 292 L190 292 Z" fill="#101113"/>
-  <circle cx="256" cy="256" r="38" fill="#101113" opacity="0.35"/>
+  <!-- O glifo do orb (mesmo do OrbGlyph do chat): esfera com o gradiente da
+       paleta ember, brilho especular no alto e halo suave — fundo transparente. -->
+  <defs>
+    <linearGradient id="orb" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ff3d10"/>
+      <stop offset="55%" stop-color="#9d5ad8"/>
+      <stop offset="100%" stop-color="#2ec5ff"/>
+    </linearGradient>
+    <radialGradient id="sheen" cx="0.35" cy="0.28" r="0.85">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.4"/>
+      <stop offset="45%" stop-color="#ffffff" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="16" result="blur"/>
+    </filter>
+  </defs>
+  <circle cx="256" cy="256" r="203" fill="#9d5ad8" opacity="0.45" filter="url(#glow)"/>
+  <circle cx="256" cy="256" r="203" fill="url(#orb)"/>
+  <circle cx="256" cy="256" r="203" fill="url(#sheen)"/>
+  <circle cx="256" cy="256" r="203" fill="none" stroke="#ffffff" stroke-opacity="0.14" stroke-width="16"/>
 </svg>

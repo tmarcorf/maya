@@ -5,6 +5,7 @@
 
 import { contextBridge, ipcRenderer } from "electron";
 
+import type { BackendStatus } from "../src/shared/backend";
 import type {
   AckEvent,
   BridgeEvent,
@@ -28,6 +29,9 @@ export interface MayaBridgeApi {
   sendCommand(command: Omit<Command, "id">): Promise<AckEvent>;
   /** Snapshot atual do main — resolve a corrida de inicialização. */
   getBridgeState(): Promise<BridgeSnapshot>;
+  /** Ciclo de vida do backend Python (spawn/monitoramento pelo main). */
+  onBackendStatus(callback: (status: BackendStatus) => void): () => void;
+  getBackendStatus(): Promise<BackendStatus | null>;
   history: {
     load(): Promise<unknown[]>;
     save(messages: unknown[]): Promise<void>;
@@ -55,6 +59,16 @@ const api: MayaBridgeApi = {
   },
   getBridgeState() {
     return ipcRenderer.invoke("bridge:get-state") as Promise<BridgeSnapshot>;
+  },
+  onBackendStatus(callback) {
+    const listener = (_event: unknown, status: BackendStatus) => callback(status);
+    ipcRenderer.on("backend:status", listener);
+    return () => {
+      ipcRenderer.removeListener("backend:status", listener);
+    };
+  },
+  getBackendStatus() {
+    return ipcRenderer.invoke("backend:get-status") as Promise<BackendStatus | null>;
   },
   history: {
     load: () => ipcRenderer.invoke("history:load") as Promise<unknown[]>,

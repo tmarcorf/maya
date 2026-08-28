@@ -12,6 +12,7 @@ Agent API server (a separate process).
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 
 import httpx
@@ -45,7 +46,14 @@ def _start_hint(base_url: str) -> str:
 
 
 def main() -> int:
-    load_dotenv(override=True)
+    # O desktop empacotado roda de um diretório read-only e aponta o .env
+    # (gravável, em userData) via MAYA_ENV_FILE; em dev, comportamento
+    # original (find_dotenv a partir deste arquivo).
+    _env_file = os.environ.get("MAYA_ENV_FILE")
+    if _env_file:
+        load_dotenv(_env_file, override=True)
+    else:
+        load_dotenv(override=True)
 
     try:
         settings: Settings = load_settings()

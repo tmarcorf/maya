@@ -5,6 +5,7 @@
  * `WsTransport`; quando o preload estiver presente, o `IpcTransport` o
  * substitui sem tocar nas stores.
  */
+import type { BackendStatus } from "@/shared/backend";
 import type {
   AckEvent,
   BridgeEvent,
@@ -27,6 +28,8 @@ declare global {
         voice: VoiceState;
         wake: WakeInfo;
       }>;
+      onBackendStatus(callback: (status: BackendStatus) => void): () => void;
+      getBackendStatus(): Promise<BackendStatus | null>;
       history: {
         load(): Promise<ChatMessage[]>;
         save(messages: ChatMessage[]): Promise<void>;

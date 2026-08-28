@@ -266,6 +266,60 @@ body {
   }
 }
 
+/*
+ * Working list — a palavra de trabalho sob o osciloscópio, visível só
+ * enquanto a Maya pensa. Onda: gradiente da paleta ativa escorrendo pelas
+ * letras (background-clip: text), com cores injetadas pelo componente
+ * (PALETTES[palette] → --wl-low/mid/high). pointer-events: none como o traço.
+ */
+.working-list {
+  position: absolute;
+  left: 50%;
+  bottom: 2.5%;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  line-height: 1;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.3s ease;
+  background-image: linear-gradient(
+    90deg,
+    var(--wl-low),
+    var(--wl-mid),
+    var(--wl-high),
+    var(--wl-mid),
+    var(--wl-low)
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: working-list-wave 2.8s linear infinite;
+}
+.working-list-hidden {
+  opacity: 0;
+}
+/* Onda: um período completo do gradiente (a largura inteira da imagem,
+   200% da largura do texto) desliza pelas letras; o loop é contínuo porque
+   o gradiente começa e termina na mesma cor. */
+@keyframes working-list-wave {
+  to {
+    background-position: -200% 0;
+  }
+}
+/* Telas baixas: o traço desce para 3% e encolhe (56px), mas a linha fica no
+   centro do canvas — a palavra em 2.5% continua abaixo dela, no espaço
+   transparente do wrap, sem cobrir o traço nem o aro do orb. */
+@media (max-height: 560px) {
+  .working-list {
+    bottom: 2%;
+  }
+}
+
 /* HUD do orb-voice — portado com o gutter de 16px do painel. */
 .orb-hud {
   position: absolute;

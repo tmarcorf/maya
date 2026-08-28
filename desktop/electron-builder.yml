@@ -17,10 +17,23 @@ files:
 asar: true
 npmRebuild: false # sem deps nativas (ws é JS puro)
 
+# Backend Python + venv autocontido (preparado por scripts/prepare-backend.sh).
+extraResources:
+  - from: backend-staging
+    to: backend
+    filter:
+      - "**/*"
+      - "!**/__pycache__/**"
+      - "!**/*.pyc"
+      - "!**/.env"
+
 linux:
   target:
     - AppImage
     - deb
+  # Sincroniza o WM_CLASS com o arquivo .desktop: a janela do app agrupa
+  # no ícone do menu na barra de tarefas (sem isso, vira uma janela solta).
+  syncDesktopName: true
   category: Utility
   icon: resources/icon.png
   maintainer: tmarcorf
@@ -28,3 +41,8 @@ linux:
   description: >
     Orb 3D reativo aos estados de voz, chat espelhando a conversa e
     toggle da wake word — a camada de apresentação do Maya.
+
+deb:
+  # PyAudio dlopen() do libportaudio2 em runtime.
+  depends:
+    - libportaudio2

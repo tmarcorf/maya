@@ -3,10 +3,15 @@
  *
  * Aceso = bridge conectada (a "hotline" viva); pulsando = reconectando;
  * apagado = offline (o app segue aberto esperando o backend).
+ *
+ * O ciclo de vida do backend (main) aparece aqui só quando não está
+ * silenciosamente ok: "Iniciando backend…" durante o spawn e "Backend
+ * falhou" com tooltip do motivo + caminho do log.
  */
 
-import { useBridgeStore } from "@/store/useBridgeStore";
 import type { ConnectionStatus as Status } from "@/lib/transport";
+import { useBackendStore } from "@/store/useBackendStore";
+import { useBridgeStore } from "@/store/useBridgeStore";
 
 const LABELS: Record<Status, string> = {
   connected: "Conectado",
@@ -16,6 +21,13 @@ const LABELS: Record<Status, string> = {
 
 export function ConnectionStatus() {
   const connection = useBridgeStore((s) => s.connection);
+  const backendPhase = useBackendStore((s) => s.phase);
+  const backendDetail = useBackendStore((s) => s.detail);
+  const backendLogFile = useBackendStore((s) => s.logFile);
+
+  const backendTooltip = [backendDetail, backendLogFile && `Log: ${backendLogFile}`]
+    .filter(Boolean)
+    .join("\n");
 
   return (
     <div className="flex items-center gap-2" title={`Bridge: ${LABELS[connection]}`}>
@@ -30,6 +42,16 @@ export function ConnectionStatus() {
         aria-hidden="true"
       />
       <span className="eyebrow text-dim">{LABELS[connection]}</span>
+      {backendPhase === "starting" && (
+        <span className="eyebrow animate-pulse text-dim" title={backendTooltip || undefined}>
+          Iniciando backend…
+        </span>
+      )}
+      {backendPhase === "failed" && (
+        <span className="eyebrow text-fbc" title={backendTooltip}>
+          Backend falhou
+        </span>
+      )}
     </div>
   );
 }

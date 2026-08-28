@@ -8,6 +8,7 @@
 import { ipcMain, type IpcMainInvokeEvent } from "electron";
 
 import type { Command } from "../src/shared/protocol";
+import type { BackendManager } from "./backend";
 import type { BridgeClient } from "./bridge-client";
 import { clearHistory, loadHistory, saveHistory } from "./history-store";
 
@@ -23,7 +24,10 @@ function isTrustedSender(event: IpcMainInvokeEvent): boolean {
   return url.startsWith("file://") || url.startsWith("http://127.0.0.1:517");
 }
 
-export function registerIpcHandlers(getBridge: () => BridgeClient | null): void {
+export function registerIpcHandlers(
+  getBridge: () => BridgeClient | null,
+  getBackend: () => BackendManager | null,
+): void {
   ipcMain.handle("bridge:get-state", (event) => {
     if (!isTrustedSender(event)) throw new Error("Sender não confiável.");
     const bridge = getBridge();
@@ -70,5 +74,10 @@ export function registerIpcHandlers(getBridge: () => BridgeClient | null): void 
     if (!isTrustedSender(event)) throw new Error("Sender não confiável.");
     clearHistory();
     return undefined;
+  });
+
+  ipcMain.handle("backend:get-status", (event) => {
+    if (!isTrustedSender(event)) throw new Error("Sender não confiável.");
+    return getBackend()?.getStatus() ?? null;
   });
 }

@@ -11,6 +11,7 @@ import path from "node:path";
 import { app, BrowserWindow } from "electron";
 
 import { BRIDGE_VERSION } from "../src/shared/protocol";
+import { BackendManager } from "./backend";
 import { BridgeClient } from "./bridge-client";
 import { registerIpcHandlers } from "./ipc";
 import { registerShortcuts, unregisterShortcuts } from "./shortcuts";
@@ -20,7 +21,9 @@ const BRIDGE_URL = process.env.BRIDGE_URL ?? "ws://127.0.0.1:8686";
 
 let mainWindow: BrowserWindow | null = null;
 let bridge: BridgeClient | null = null;
+let backend: BackendManager | null = null;
 let tray: ReturnType<typeof createTray> | null = null;
+let quitting = false;
 
 function broadcastToWindows(channel: string, payload: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -84,6 +87,10 @@ function createMainWindow(): void {
       voice: active.voice,
       wake: active.wake,
     });
+    const backendStatus = backend?.getStatus();
+    if (backendStatus) {
+      win.webContents.send("backend:status", backendStatus);
+    }
   });
 
   const devUrl = process.env.VITE_DEV_SERVER_URL;
@@ -95,24 +102,39 @@ function createMainWindow(): void {
   }
 }
 
-const gotLock = app.requestSingleInstanceLock();
+// Instância única só em prod: em dev, cada `npm run dev` sobe fresco. O lock
+// vive em ~/.config/Maya (userData compartilhado com o instalado) — uma
+// instância anterior viva na bandeja (companion) fazia o próximo dev sair
+// com exit 0 silenciosamente.
+const gotLock = app.isPackaged ? app.requestSingleInstanceLock() : true;
 if (!gotLock) {
   app.quit();
 } else {
-  app.on("second-instance", () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.show();
-      mainWindow.focus();
-    }
-  });
+  if (app.isPackaged) {
+    app.on("second-instance", () => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    });
+  }
 
   app.whenReady().then(() => {
     bridge = new BridgeClient(BRIDGE_URL);
     bridge.on("event", (event: unknown) => broadcastToWindows("bridge:event", event));
     bridge.on("status", (status: unknown) => broadcastToWindows("bridge:status", status));
 
-    registerIpcHandlers(() => bridge);
+    backend = new BackendManager();
+    backend.on("status", (status: unknown) => broadcastToWindows("backend:status", status));
+    backend.on("status", (status: { phase: string }) => {
+      // Pronto (por nós ou externo): reconecta na hora, sem esperar o backoff.
+      if (status.phase === "ready" || status.phase === "external") {
+        bridge?.connect();
+      }
+    });
+
+    registerIpcHandlers(() => bridge, () => backend);
     registerShortcuts(() => bridge);
     createMainWindow();
     tray = createTray({
@@ -122,6 +144,7 @@ if (!gotLock) {
       quit: () => app.quit(),
     });
     bridge.connect();
+    void backend.start(); // fases fluem pelos eventos backend:status
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
@@ -132,6 +155,15 @@ if (!gotLock) {
   // Companion: fechar a janela NÃO sai do app (a bandeja continua viva).
   app.on("window-all-closed", () => {
     // no-op intencional — saída pelo tray.
+  });
+
+  // Teardown do backend é assíncrono (SIGTERM → graça → SIGKILL): precisa
+  // do preventDefault + re-quit, senão o Electron morre antes do stop().
+  app.on("before-quit", (event) => {
+    if (quitting || !backend) return;
+    event.preventDefault();
+    quitting = true;
+    void backend.stop().finally(() => app.quit());
   });
 
   app.on("will-quit", () => {

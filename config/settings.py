@@ -78,7 +78,13 @@ def _int_or_none(raw: str | None) -> int | None:
 
 def load_settings() -> Settings:
     """Load settings from `.env` / environment variables, with validation."""
-    load_dotenv(override=True)
+    # Desktop empacotado: o .env gravável vive em userData e é apontado via
+    # MAYA_ENV_FILE (o find_dotenv padrão subiria para resources/backend, read-only).
+    _env_file = os.environ.get("MAYA_ENV_FILE")
+    if _env_file:
+        load_dotenv(_env_file, override=True)
+    else:
+        load_dotenv(override=True)
 
     api_key = os.getenv("HERMES_API_KEY", "").strip()
     if not api_key:

@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 
 import { ChatPanel } from "@/features/chat/ChatPanel";
+import { BackendBanner } from "@/features/connection/BackendBanner";
 import { ConnectionStatus } from "@/features/connection/ConnectionStatus";
 import { OrbStage } from "@/features/orb/OrbStage";
 import { OscilloscopeStage } from "@/features/orb/OscilloscopeStage";
+import { WorkingList } from "@/features/orb/WorkingList";
 import { SettingsButton, SettingsPanel } from "@/features/settings/SettingsPanel";
+import { initBackendStatus } from "@/lib/backendStatus";
 import { initBridge } from "@/lib/dispatcher";
 import { wakeStatusLabel } from "@/shared/stateMeta";
 import { useBridgeStore } from "@/store/useBridgeStore";
@@ -42,7 +45,12 @@ function ChevronIcon({ direction }: { direction: "left" | "right" }) {
 export default function App() {
   useEffect(() => {
     hydrateChatHistory();
-    return initBridge();
+    const unsubscribeBridge = initBridge();
+    const unsubscribeBackend = initBackendStatus();
+    return () => {
+      unsubscribeBridge();
+      unsubscribeBackend();
+    };
   }, []);
   const wake = useBridgeStore((s) => s.wake);
   const session = useBridgeStore((s) => s.session);
@@ -52,6 +60,8 @@ export default function App() {
 
   return (
     <div className="app-root flex h-full flex-col md:flex-row" data-palette={palette}>
+      {/* Aviso fixo do backend (falha/start com detalhe) — fora do fluxo flex. */}
+      <BackendBanner />
       {/* Palco do orb: canvas em tela cheia do painel, HUD sobreposto.
           Com a conversa recolhida, a aba "«" na borda direita reabre o painel. */}
       <section
@@ -64,6 +74,8 @@ export default function App() {
         </div>
         {/* Traço de áudio da Maya, sob o orb — visível só quando ela fala. */}
         <OscilloscopeStage />
+        {/* Palavra de trabalho sob o traço — visível só enquanto ela pensa. */}
+        <WorkingList />
         <div className="orb-hud">
           {session?.appSessionId && (
             <div className="orb-meta eyebrow hidden text-dim/60 md:block">

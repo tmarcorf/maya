@@ -17,5 +17,10 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["electron/**/*.ts", "src/shared/protocol.ts", "src/shared/stateMeta.ts"]
+  "include": [
+    "electron/**/*.ts",
+    "src/shared/protocol.ts",
+    "src/shared/stateMeta.ts",
+    "src/shared/backend.ts"
+  ]
 }
