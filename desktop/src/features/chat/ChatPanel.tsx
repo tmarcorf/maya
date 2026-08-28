@@ -46,6 +46,15 @@ export function ChatPanel() {
     setPinned(el.scrollHeight - el.scrollTop - el.clientHeight < 40);
   };
 
+  // Volta ao final da conversa: o scroll suave chega sozinho no intervalo de
+  // pin (< 40px) e o onScroll religa o `pinned` — o botão some ao chegar.
+  const jumpToEnd = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollTo({ top: el.scrollHeight, behavior: reduced ? "auto" : "smooth" });
+  };
+
   const last = messages[messages.length - 1];
   // Segmentos selados (fechados por uma ferramenta) não contam como texto
   // em streaming: com a ferramenta rodando, o "pensando…" reaparece.
@@ -54,7 +63,7 @@ export function ChatPanel() {
     !(last && last.role === "agent" && !last.final && !last.sealed);
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col">
+    <section className="relative flex min-h-0 flex-1 flex-col">
       <div
         ref={scrollRef}
         onScroll={onScroll}
@@ -88,6 +97,29 @@ export function ChatPanel() {
           </div>
         )}
       </div>
+      {/* Pular para o final — só quando o pin soltou (usuário rolou pra cima). */}
+      {!pinned && (
+        <button
+          type="button"
+          onClick={jumpToEnd}
+          className="chat-jump"
+          aria-label="Pular para o final da conversa"
+          title="Pular para o final da conversa"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            className="h-4 w-4"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
+      )}
       <Composer />
     </section>
   );

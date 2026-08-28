@@ -67,6 +67,43 @@ body {
   border-radius: 3px;
 }
 
+/*
+ * Pular para o final da conversa — flutua sobre o canto do chat quando o
+ * usuário rolou para cima (pin solto). Mesmo vocabulário do status-wrap do
+ * orb: painel translúcido, hairline, blur. 112px = folga do Composer máximo
+ * (textarea de 3 linhas + paddings).
+ */
+.chat-jump {
+  position: absolute;
+  right: 24px;
+  bottom: 112px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 12px;
+  background: rgba(5, 7, 13, 0.38);
+  backdrop-filter: blur(14px);
+  color: var(--color-text);
+  transition: background-color 150ms, border-color 150ms, color 150ms;
+  animation: chat-jump-in 160ms ease-out;
+}
+.chat-jump:hover {
+  background: rgba(10, 12, 16, 0.92);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.chat-jump:active {
+  transform: translateY(1px);
+}
+@keyframes chat-jump-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
 /* Foco visível para navegação por teclado. */
 :focus-visible {
   outline: 1px solid var(--color-text);
