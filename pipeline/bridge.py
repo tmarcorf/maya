@@ -794,7 +794,17 @@ class BridgeServer:
             else:
                 import base64
 
-                result = await self._word_tts.synthesize(text)
+                try:
+                    result = await self._word_tts.synthesize(text)
+                except Exception as e:  # noqa: BLE001 — API de voz fora do ar não pode derrubar a conexão
+                    logger.warning(f"synthesize_word falhou: {e}")
+                    await self._send_ack(
+                        connection,
+                        message.get("id"),
+                        ok=False,
+                        error={"code": "synthesis_failed", "message": str(e)},
+                    )
+                    return
                 if result is None:
                     await self._send_ack(
                         connection,
@@ -802,7 +812,7 @@ class BridgeServer:
                         ok=False,
                         error={
                             "code": "model_missing",
-                            "message": "Modelo Kokoro não encontrado em disco.",
+                            "message": "Modelo de voz não encontrado em disco.",
                         },
                     )
                 else:
