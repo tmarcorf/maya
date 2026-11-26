@@ -20,7 +20,7 @@ Stack atual:
 ## Estrutura
 
 ```text
-maya-agent/
+maya/
 ├── pyproject.toml
 ├── .env.example
 ├── README.md
@@ -71,7 +71,7 @@ maya-agent/
 1. Entre no projeto e instale as dependências:
 
    ```bash
-   cd maya-agent
+   cd maya
    uv sync
    ```
 
