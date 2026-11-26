@@ -1,0 +1,55 @@
+[build-system]
+requires = ["hatchling==1.33.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "maya-agent"
+version = "0.1.0"
+description = "Realtime voice agent Maya built with LiveKit Agents"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aiohttp==3.14.5",
+    "av==18.1.1",
+    "faster-whisper==1.2.1",
+    "livekit-agents==1.9.0",
+    "livekit-plugins-elevenlabs==1.9.0",
+    "livekit-plugins-openai==1.9.0",
+    "livekit-plugins-silero==1.9.0",
+    "nvidia-cublas-cu12==12.9.3.13",
+    "nvidia-cudnn-cu12==9.28.1.4",
+    "nvidia-cuda-runtime-cu12==12.9.79",
+    "python-dotenv==1.2.4",
+]
+
+[project.scripts]
+maya-agent = "maya_agent.agent:main"
+
+[dependency-groups]
+dev = [
+    "pytest==9.2.0",
+    "pytest-asyncio==1.5.0",
+    "ruff==0.17.6",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/maya_agent"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["maya_agent"]
+
+[tool.ruff.format]
+quote-style = "double"

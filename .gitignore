@@ -1,26 +1,12 @@
-# Environment / secrets
 .env
-
-# Python
 .venv/
 __pycache__/
 *.py[cod]
-*.egg-info/
-build/
-dist/
-
-# Tooling
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
 .uv/
-
-# Logs
-*.log
-
-# Desktop app (Electron)
-desktop/node_modules/
-desktop/dist/
-desktop/dist-electron/
-desktop/release/
-desktop/backend-staging/
+.ruff_cache/
+.pytest_cache/
+.coverage
+dist/
+build/
+*.egg-info/
+console-recordings/
