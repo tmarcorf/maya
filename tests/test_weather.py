@@ -10,6 +10,7 @@ from maya_agent.tools.weather import (
     FORECAST_URL,
     GEOCODING_URL,
     WEATHER_UNAVAILABLE_ERROR,
+    build_weather_forecast_tool,
     build_weather_tool,
 )
 
@@ -153,6 +154,71 @@ async def test_weather_request_failure_raises_tool_error() -> None:
         raise RuntimeError("offline")
 
     tool = build_weather_tool(request=request)
+
+    with pytest.raises(ToolError) as exc_info:
+        await tool(city="São Paulo")
+
+    assert str(exc_info.value) == WEATHER_UNAVAILABLE_ERROR
+
+
+@pytest.mark.asyncio
+async def test_weather_forecast_normalizes_daily_data() -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    async def request(url: str, params: dict[str, Any]) -> dict[str, Any]:
+        calls.append((url, params))
+        if url == GEOCODING_URL:
+            return _location_payload()
+        return {
+            "daily": {
+                "time": ["2026-11-26", "2026-11-27"],
+                "weather_code": [2, 61],
+                "temperature_2m_max": [18.5, 16.0],
+                "temperature_2m_min": [9.0, 8.0],
+                "precipitation_probability_max": [20, 80],
+                "wind_speed_10m_max": [12.0, 20.0],
+            }
+        }
+
+    tool = build_weather_forecast_tool(request=request)
+
+    result = await tool(city="Berlim", days=2)
+
+    assert result == {
+        "city": "São Paulo",
+        "country": "Brasil",
+        "days": [
+            {
+                "date": "2026-11-26",
+                "condition": "parcialmente nublado",
+                "max_c": 18.5,
+                "min_c": 9.0,
+                "precipitation_probability_percent": 20.0,
+                "wind_max_kmh": 12.0,
+            },
+            {
+                "date": "2026-11-27",
+                "condition": "chuva leve",
+                "max_c": 16.0,
+                "min_c": 8.0,
+                "precipitation_probability_percent": 80.0,
+                "wind_max_kmh": 20.0,
+            },
+        ],
+    }
+    assert calls[1][0] == FORECAST_URL
+    assert calls[1][1]["forecast_days"] == 2
+    assert "daily" in calls[1][1]
+
+
+@pytest.mark.asyncio
+async def test_weather_forecast_missing_daily_data_raises_tool_error() -> None:
+    async def request(url: str, params: dict[str, Any]) -> dict[str, Any]:
+        if url == GEOCODING_URL:
+            return _location_payload()
+        return {"daily": None}
+
+    tool = build_weather_forecast_tool(request=request)
 
     with pytest.raises(ToolError) as exc_info:
         await tool(city="São Paulo")

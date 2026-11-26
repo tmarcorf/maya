@@ -12,8 +12,9 @@ Stack atual:
 - TTS **ElevenLabs** (`eleven_flash_v2_5`)
 - Pesquisa na web via **Tavily** (chave opcional; keyless como fallback)
 - Extração de páginas via **Tavily Extract**
-- Clima atual via **Open-Meteo**
-- Mercado/índices via **Yahoo Finance**
+- Data/hora local, cálculo seguro, Wikipedia
+- Clima atual e previsão via **Open-Meteo**
+- Mercado/índices e cotação de ação via **Yahoo Finance**
 - Cache TTL em memória para busca e extração
 - VAD Silero + turn detector multimodal multilíngue do LiveKit (`pt` suportado)
 - Endpointing configurável por `.env`
@@ -48,14 +49,18 @@ maya/
 │       └── tools/
 │           ├── __init__.py
 │           ├── cache.py
+│           ├── calculator.py
 │           ├── market.py
 │           ├── text.py
+│           ├── time_tool.py
 │           ├── weather.py
 │           ├── web_extract.py
-│           └── web_search.py
+│           ├── web_search.py
+│           └── wikipedia.py
 └── tests/
     ├── test_agent.py
     ├── test_cache.py
+    ├── test_calculator.py
     ├── test_config.py
     ├── test_instructions.py
     ├── test_latency.py
@@ -64,10 +69,12 @@ maya/
     ├── test_session.py
     ├── test_stt_whisper.py
     ├── test_text.py
+    ├── test_time_tool.py
     ├── test_tts_elevenlabs.py
     ├── test_weather.py
     ├── test_web_extract.py
-    └── test_web_search.py
+    ├── test_web_search.py
+    └── test_wikipedia.py
 ```
 
 ## Pré-requisitos
@@ -255,22 +262,36 @@ WEB_EXTRACT_CACHE_TTL_MINUTES=10
 - O conteúdo é limpo, truncado e cacheado por URL.
 - O prompt proíbe ler URLs em voz alta; a Maya usa o conteúdo para responder.
 
-## Clima (get_weather)
+## Clima (get_weather / get_weather_forecast)
 
-A tool `get_weather` usa o Open-Meteo, sem chave.
+As tools de clima usam o Open-Meteo, sem chave.
 
-- Recebe uma cidade, faz geocoding e busca o clima atual.
-- Retorna temperatura, sensação térmica, condição, vento, umidade e horário.
+- `get_weather(city)`: temperatura, sensação, condição, vento, umidade e horário.
+- `get_weather_forecast(city, days)`: previsão de 1 a 7 dias, com máxima, mínima,
+  chance de chuva e vento.
 - Erros viram uma mensagem curta; a Maya não inventa dados.
 
-## Mercado (get_market_summary)
+## Mercado (get_market_summary / get_stock_quote)
 
-A tool `get_market_summary` usa o Yahoo Finance, sem chave.
+As tools de mercado usam o Yahoo Finance, sem chave.
 
-- Retorna Ibovespa, S&P 500, Nasdaq e Dow Jones.
+- `get_market_summary()`: Ibovespa, S&P 500, Nasdaq e Dow Jones.
+- `get_stock_quote(symbol)`: uma ação específica; `PETR4` vira `PETR4.SA`
+  automaticamente.
 - Inclui preço, variação, variação percentual, moeda e horário.
 - É o caminho correto para “como estão as ações hoje”; não use web_search
   para cotações ao vivo.
+
+## Data, cálculo e Wikipedia
+
+```dotenv
+MAYA_TIMEZONE=America/Sao_Paulo
+```
+
+- `get_current_datetime`: data, hora, dia da semana, fuso e offset.
+- `calculate`: aritmética segura com `ast`, sem `eval`; suporta parênteses,
+  `+ - * / // % **` e limites de tamanho/expoente.
+- `wikipedia`: resumo em português ou inglês, conforme `MAYA_LANGUAGE`, sem chave.
 
 ## Idioma e prompt
 
@@ -278,10 +299,12 @@ A tool `get_market_summary` usa o Yahoo Finance, sem chave.
 MAYA_LANGUAGE=pt-BR   # padrão
 # MAYA_LANGUAGE=en-US
 MAYA_PROMPT_PATH=prompts/maya.md
+MAYA_TIMEZONE=America/Sao_Paulo
 ```
 
 A persona fica em `prompts/maya.md` e pode ser editada diretamente. O caminho
-é configurável para facilitar deploy/montagem do arquivo.
+é configurável para facilitar deploy/montagem do arquivo. `MAYA_TIMEZONE` também
+define o fuso usado por `get_current_datetime`.
 
 ## Turn detection, endpointing e barge-in
 
@@ -333,6 +356,12 @@ Até lá, não há factory/registry: um adapter por tipo mantém o código diret
   ou use a busca como fallback.
 - **Clima/mercado indisponíveis**: Open-Meteo e Yahoo podem falhar ou limitar.
   A Maya avisa; tente novamente depois. Nenhuma chave é necessária.
+- **`MAYA_TIMEZONE` inválido**: use um nome IANA, como `America/Sao_Paulo` ou
+  `Europe/Berlin`.
+- **Cálculo rejeitado**: `calculate` aceita só aritmética básica; não aceita
+  funções, variáveis ou expressões muito grandes.
+- **Wikipedia sem resultado**: confira o termo ou tente `web_search`; a tool usa
+  o idioma configurado em `MAYA_LANGUAGE`.
 - **Falha ao conectar no LiveKit**: confirme `docker compose ps`, a URL e as
   credenciais. O modo dev do LiveKit usa `devkey` / `secret`.
 - **Aviso de chave HMAC curta**: esperado com `devkey` / `secret` do modo dev local;

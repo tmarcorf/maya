@@ -4,6 +4,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -17,6 +18,7 @@ LANGUAGE_NAMES = {
 class MayaSettings:
     language: str
     prompt_path: Path
+    timezone: str
 
     @property
     def language_code(self) -> str:
@@ -249,15 +251,26 @@ def _load_web_extract_settings(env: Mapping[str, str]) -> WebExtractSettings:
     )
 
 
+def _load_timezone(raw: str) -> str:
+    try:
+        ZoneInfo(raw)
+    except ZoneInfoNotFoundError:
+        raise ValueError(f"MAYA_TIMEZONE is not a valid IANA timezone: {raw}") from None
+    return raw
+
+
 def load_settings(env: Mapping[str, str] | None = None) -> AppSettings:
     source = os.environ if env is None else env
     language = _normalize_language(_env(source, "MAYA_LANGUAGE", "pt-BR") or "pt-BR")
     prompt_path = _resolve_prompt_path(
         _env(source, "MAYA_PROMPT_PATH", "prompts/maya.md") or "prompts/maya.md"
     )
+    timezone = _load_timezone(
+        _env(source, "MAYA_TIMEZONE", "America/Sao_Paulo") or "America/Sao_Paulo"
+    )
 
     return AppSettings(
-        maya=MayaSettings(language=language, prompt_path=prompt_path),
+        maya=MayaSettings(language=language, prompt_path=prompt_path, timezone=timezone),
         whisper=_load_whisper_settings(source),
         deepseek=_load_deepseek_settings(source),
         elevenlabs=_load_elevenlabs_settings(source),

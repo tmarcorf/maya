@@ -9,7 +9,9 @@ from livekit.agents import ToolError
 from maya_agent.tools.market import (
     MARKET_UNAVAILABLE_ERROR,
     build_market_tool,
+    build_stock_quote_tool,
     chart_url,
+    normalize_symbol,
 )
 
 MARKET_TIME = 1764100000
@@ -174,3 +176,66 @@ async def test_market_partial_failure_raises_tool_error_without_partial_result()
 
     assert str(exc_info.value) == MARKET_UNAVAILABLE_ERROR
     assert calls == [chart_url("^BVSP"), chart_url("^GSPC")]
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("PETR4", "PETR4.SA"),
+        ("VALE3", "VALE3.SA"),
+        ("AAPL", "AAPL"),
+        ("^BVSP", "^BVSP"),
+        ("PETR4.SA", "PETR4.SA"),
+        ("  petr4  ", "PETR4.SA"),
+    ],
+)
+def test_normalize_symbol(raw: str, expected: str) -> None:
+    assert normalize_symbol(raw) == expected
+
+
+def test_normalize_symbol_rejects_empty() -> None:
+    with pytest.raises(ToolError):
+        normalize_symbol("   ")
+
+
+@pytest.mark.asyncio
+async def test_stock_quote_normalizes_b3_symbol_and_returns_quote() -> None:
+    calls: list[str] = []
+
+    async def request(url: str, params: dict[str, Any]) -> dict[str, Any]:
+        calls.append(url)
+        return _payload(
+            {
+                "shortName": "Petroleo Brasileiro SA Pfd",
+                "symbol": "PETR4.SA",
+                "regularMarketPrice": 41.36,
+                "regularMarketChange": 0.81,
+                "regularMarketChangePercent": 2.0,
+                "currency": "BRL",
+                "regularMarketTime": MARKET_TIME,
+            }
+        )
+
+    result = await build_stock_quote_tool(request=request)(symbol="PETR4")
+
+    assert calls == [chart_url("PETR4.SA")]
+    assert result == {
+        "as_of": datetime.fromtimestamp(MARKET_TIME, tz=UTC).isoformat(),
+        "name": "Petroleo Brasileiro SA Pfd",
+        "symbol": "PETR4.SA",
+        "price": 41.36,
+        "change": 0.81,
+        "change_percent": 2.0,
+        "currency": "BRL",
+    }
+
+
+@pytest.mark.asyncio
+async def test_stock_quote_request_failure_raises_tool_error() -> None:
+    async def request(url: str, params: dict[str, Any]) -> dict[str, Any]:
+        raise RuntimeError("offline")
+
+    with pytest.raises(ToolError) as exc_info:
+        await build_stock_quote_tool(request=request)(symbol="AAPL")
+
+    assert str(exc_info.value) == MARKET_UNAVAILABLE_ERROR

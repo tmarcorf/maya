@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -50,8 +51,22 @@ def _as_int(value: Any) -> int | None:
     return int(number) if number is not None else None
 
 
+_B3_SYMBOL = re.compile(r"^[A-Z]{4}\d{1,2}$")
+
+
 def chart_url(symbol: str) -> str:
     return f"{CHART_URL}/{quote(symbol, safe='')}"
+
+
+def normalize_symbol(raw: str) -> str:
+    symbol = _clean_text(raw).upper()
+    if not symbol:
+        raise ToolError("Diga qual ação você quer consultar.")
+    if symbol.startswith("^") or "." in symbol:
+        return symbol
+    if _B3_SYMBOL.fullmatch(symbol):
+        return f"{symbol}.SA"
+    return symbol
 
 
 def _format_as_of(value: Any) -> str | None:
@@ -134,6 +149,23 @@ async def fetch_market_summary(request: RequestFn) -> dict[str, Any]:
     return {"as_of": as_of, "indices": indices}
 
 
+async def fetch_stock_quote(request: RequestFn, symbol: str) -> dict[str, Any]:
+    normalized = normalize_symbol(symbol)
+    try:
+        data = await request(
+            chart_url(normalized),
+            {"interval": "1d", "range": "1d"},
+        )
+    except ToolError:
+        raise
+    except Exception as exc:
+        logger.warning("stock quote request failed for %s: %s", normalized, exc)
+        raise ToolError(MARKET_UNAVAILABLE_ERROR) from exc
+
+    quote_data, market_time = _extract_index(data, normalized, normalized)
+    return {"as_of": _format_as_of(market_time), **quote_data}
+
+
 def build_market_tool(request: RequestFn | None = None) -> llm.Tool:
     request_fn = request or _request_json
 
@@ -148,3 +180,18 @@ def build_market_tool(request: RequestFn | None = None) -> llm.Tool:
         return await fetch_market_summary(request_fn)
 
     return get_market_summary
+
+
+def build_stock_quote_tool(request: RequestFn | None = None) -> llm.Tool:
+    request_fn = request or _request_json
+
+    @function_tool(name="get_stock_quote")
+    async def get_stock_quote(symbol: str) -> dict[str, Any]:
+        """Get the latest quote for a specific stock.
+
+        Use for a single ticker such as PETR4, VALE3 or AAPL. Brazilian tickers
+        are normalized to Yahoo's .SA suffix automatically.
+        """
+        return await fetch_stock_quote(request_fn, symbol)
+
+    return get_stock_quote

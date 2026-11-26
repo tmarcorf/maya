@@ -33,7 +33,11 @@ def test_empty_prompt_raises(tmp_path) -> None:
 def test_build_instructions_appends_language_directive(tmp_path) -> None:
     prompt_path = tmp_path / "maya.md"
     prompt_path.write_text("Persona de teste.", encoding="utf-8")
-    settings = MayaSettings(language="pt-BR", prompt_path=prompt_path)
+    settings = MayaSettings(
+        language="pt-BR",
+        prompt_path=prompt_path,
+        timezone="America/Sao_Paulo",
+    )
 
     instructions = build_instructions(settings)
 
@@ -42,7 +46,11 @@ def test_build_instructions_appends_language_directive(tmp_path) -> None:
 
 
 def test_greeting_instructions_use_language(tmp_path) -> None:
-    settings = MayaSettings(language="en-US", prompt_path=tmp_path / "unused.md")
+    settings = MayaSettings(
+        language="en-US",
+        prompt_path=tmp_path / "unused.md",
+        timezone="America/Sao_Paulo",
+    )
 
     greeting = greeting_instructions(settings)
 

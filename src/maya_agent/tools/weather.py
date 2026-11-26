@@ -93,7 +93,7 @@ async def _request_json(url: str, params: dict[str, Any]) -> dict[str, Any]:
             raise WeatherError("weather response was not valid JSON") from exc
 
 
-async def fetch_weather(request: RequestFn, city: str) -> dict[str, Any]:
+async def _geocode(request: RequestFn, city: str) -> tuple[dict[str, Any], str]:
     query = _clean_text(city)
     if not query:
         raise ToolError(CITY_NOT_FOUND_ERROR)
@@ -112,6 +112,15 @@ async def fetch_weather(request: RequestFn, city: str) -> dict[str, Any]:
         raise ToolError(CITY_NOT_FOUND_ERROR)
 
     location = results[0]
+    latitude = _as_float(location.get("latitude"))
+    longitude = _as_float(location.get("longitude"))
+    if latitude is None or longitude is None:
+        raise ToolError(CITY_NOT_FOUND_ERROR)
+    return location, query
+
+
+async def fetch_weather(request: RequestFn, city: str) -> dict[str, Any]:
+    location, query = await _geocode(request, city)
     latitude = _as_float(location.get("latitude"))
     longitude = _as_float(location.get("longitude"))
     if latitude is None or longitude is None:
@@ -150,6 +159,67 @@ async def fetch_weather(request: RequestFn, city: str) -> dict[str, Any]:
     }
 
 
+def _at(values: Any, index: int) -> Any:
+    return values[index] if isinstance(values, list) and index < len(values) else None
+
+
+async def fetch_weather_forecast(request: RequestFn, city: str, days: int = 3) -> dict[str, Any]:
+    try:
+        days = max(1, min(int(days), 7))
+    except (TypeError, ValueError):
+        raise ToolError("O número de dias precisa estar entre 1 e 7.") from None
+
+    location, query = await _geocode(request, city)
+    latitude = _as_float(location.get("latitude"))
+    longitude = _as_float(location.get("longitude"))
+    if latitude is None or longitude is None:
+        raise ToolError(CITY_NOT_FOUND_ERROR)
+
+    try:
+        forecast = await request(
+            FORECAST_URL,
+            {
+                "latitude": latitude,
+                "longitude": longitude,
+                "daily": (
+                    "weather_code,temperature_2m_max,temperature_2m_min,"
+                    "precipitation_probability_max,wind_speed_10m_max"
+                ),
+                "forecast_days": days,
+                "timezone": "auto",
+            },
+        )
+    except Exception as exc:
+        logger.warning("weather forecast request failed: %s", exc)
+        raise ToolError(WEATHER_UNAVAILABLE_ERROR) from exc
+
+    daily = forecast.get("daily") if isinstance(forecast, dict) else None
+    dates = daily.get("time") if isinstance(daily, dict) else None
+    if not isinstance(dates, list) or not dates:
+        raise ToolError(WEATHER_UNAVAILABLE_ERROR)
+
+    result_days = []
+    for index, date in enumerate(dates[:days]):
+        result_days.append(
+            {
+                "date": _clean_text(date),
+                "condition": condition_from_wmo(_as_int(_at(daily.get("weather_code"), index))),
+                "max_c": _as_float(_at(daily.get("temperature_2m_max"), index)),
+                "min_c": _as_float(_at(daily.get("temperature_2m_min"), index)),
+                "precipitation_probability_percent": _as_float(
+                    _at(daily.get("precipitation_probability_max"), index)
+                ),
+                "wind_max_kmh": _as_float(_at(daily.get("wind_speed_10m_max"), index)),
+            }
+        )
+
+    return {
+        "city": _clean_text(location.get("name")) or query,
+        "country": _clean_text(location.get("country")) or None,
+        "days": result_days,
+    }
+
+
 def build_weather_tool(request: RequestFn | None = None) -> llm.Tool:
     request_fn = request or _request_json
 
@@ -164,3 +234,18 @@ def build_weather_tool(request: RequestFn | None = None) -> llm.Tool:
         return await fetch_weather(request_fn, city)
 
     return get_weather
+
+
+def build_weather_forecast_tool(request: RequestFn | None = None) -> llm.Tool:
+    request_fn = request or _request_json
+
+    @function_tool(name="get_weather_forecast")
+    async def get_weather_forecast(city: str, days: int = 3) -> dict[str, Any]:
+        """Get a short weather forecast for a city.
+
+        Use when the user asks about tomorrow, the next few days, rain chances
+        or maximum/minimum temperatures. Days must be between 1 and 7.
+        """
+        return await fetch_weather_forecast(request_fn, city, days)
+
+    return get_weather_forecast

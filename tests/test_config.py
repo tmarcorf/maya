@@ -18,6 +18,7 @@ def test_defaults() -> None:
     assert settings.maya.language_code == "pt"
     assert settings.maya.language_name == "Brazilian Portuguese"
     assert settings.maya.prompt_path == PROJECT_ROOT / "prompts" / "maya.md"
+    assert settings.maya.timezone == "America/Sao_Paulo"
     assert settings.whisper.model == "medium"
     assert settings.whisper.device == "auto"
     assert settings.whisper.compute_type == "default"
@@ -39,6 +40,17 @@ def test_defaults() -> None:
     assert settings.web_extract.max_chars == 6000
     assert settings.web_extract.timeout_seconds == 8.0
     assert settings.web_extract.cache_ttl_minutes == 10
+
+
+def test_timezone_can_be_overridden() -> None:
+    settings = load_settings({**BASE_ENV, "MAYA_TIMEZONE": "Europe/Berlin"})
+
+    assert settings.maya.timezone == "Europe/Berlin"
+
+
+def test_invalid_timezone_is_rejected() -> None:
+    with pytest.raises(ValueError, match="MAYA_TIMEZONE"):
+        load_settings({**BASE_ENV, "MAYA_TIMEZONE": "Mars/Olympus"})
 
 
 def test_web_search_can_be_enabled_without_a_key() -> None:

@@ -43,8 +43,13 @@ def test_build_agent_includes_all_tools_when_web_search_enabled(tmp_path) -> Non
     assert [tool.info.name for tool in agent.tools] == [
         "web_search",
         "web_extract",
+        "get_current_datetime",
+        "calculate",
+        "wikipedia",
         "get_weather",
+        "get_weather_forecast",
         "get_market_summary",
+        "get_stock_quote",
     ]
 
 
@@ -53,6 +58,11 @@ def test_build_agent_keeps_non_search_tools_when_web_search_disabled(tmp_path) -
 
     assert [tool.info.name for tool in agent.tools] == [
         "web_extract",
+        "get_current_datetime",
+        "calculate",
+        "wikipedia",
         "get_weather",
+        "get_weather_forecast",
         "get_market_summary",
+        "get_stock_quote",
     ]
