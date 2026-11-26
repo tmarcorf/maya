@@ -11,6 +11,10 @@ Stack atual:
 - LLM **DeepSeek** (`deepseek-flash`, com thinking desligado)
 - TTS **ElevenLabs** (`eleven_flash_v2_5`)
 - Pesquisa na web via **Tavily** (chave opcional; keyless como fallback)
+- Extração de páginas via **Tavily Extract**
+- Clima atual via **Open-Meteo**
+- Mercado/índices via **Yahoo Finance**
+- Cache TTL em memória para busca e extração
 - VAD Silero + turn detector multimodal multilíngue do LiveKit (`pt` suportado)
 - Endpointing configurável por `.env`
 - Português do Brasil por padrão, com troca para inglês por configuração
@@ -43,16 +47,26 @@ maya/
 │       ├── tts_elevenlabs.py
 │       └── tools/
 │           ├── __init__.py
+│           ├── cache.py
+│           ├── market.py
+│           ├── text.py
+│           ├── weather.py
+│           ├── web_extract.py
 │           └── web_search.py
 └── tests/
     ├── test_agent.py
+    ├── test_cache.py
     ├── test_config.py
     ├── test_instructions.py
     ├── test_latency.py
     ├── test_llm_deepseek.py
+    ├── test_market.py
     ├── test_session.py
     ├── test_stt_whisper.py
+    ├── test_text.py
     ├── test_tts_elevenlabs.py
+    ├── test_weather.py
+    ├── test_web_extract.py
     └── test_web_search.py
 ```
 
@@ -65,6 +79,7 @@ maya/
 - Chave e voz da **ElevenLabs** (TTS)
 - GPU NVIDIA é opcional; o Whisper roda em CUDA com fallback automático para CPU
 - A busca na web usa Tavily; a chave é opcional e o modo keyless funciona com limites
+- Clima e mercado usam Open-Meteo/Yahoo e não exigem chave
 
 ## Setup rápido
 
@@ -204,6 +219,7 @@ TAVILY_API_KEY=          # opcional
 WEB_SEARCH_ENABLED=true
 WEB_SEARCH_MAX_RESULTS=3
 WEB_SEARCH_TIMEOUT_SECONDS=8
+WEB_SEARCH_CACHE_TTL_MINUTES=10
 ```
 
 - Com `TAVILY_API_KEY`, usa `Authorization: Bearer` e maior limite.
@@ -211,17 +227,50 @@ WEB_SEARCH_TIMEOUT_SECONDS=8
 - `search_depth=fast` e `include_answer=basic`: a resposta traz um resumo curto
   mais snippets das fontes.
 - `WEB_SEARCH_ENABLED=false` remove a tool do agente.
+- O cache TTL evita repetir a mesma busca; `0` desliga o cache.
 - O DeepSeek decide quando chamar a tool e resume em 1–3 frases.
 - Resultados da web são tratados como dados não confiáveis; o prompt proíbe
   seguir instruções contidas neles e proíbe ler URLs em voz alta.
 - Se o Tavily falhar ou limitar, a Maya avisa que não conseguiu verificar agora;
   não é um erro fatal do turno.
-- Tavily é busca web, não fonte de dados ao vivo. Para clima e cotações, os
-  resultados podem estar desatualizados; a Maya deve avisar disso. Ferramentas
-  dedicadas (Open-Meteo/Yahoo) são o próximo passo para esses casos.
+- Tavily é busca web, não fonte de dados ao vivo. Para clima e cotações, use
+  `get_weather` e `get_market_summary`.
 
 Quando houver um segundo backend (SearXNG ou Brave), ele entra como outro
 `WebSearchClient` em `tools/web_search.py`; a tool e os testes continuam iguais.
+
+## Extração de páginas (web_extract)
+
+Depois de uma busca, o LLM pode pedir o conteúdo real de uma ou duas páginas.
+
+```dotenv
+WEB_EXTRACT_ENABLED=true
+WEB_EXTRACT_MAX_URLS=2
+WEB_EXTRACT_MAX_CHARS=6000
+WEB_EXTRACT_TIMEOUT_SECONDS=8
+WEB_EXTRACT_CACHE_TTL_MINUTES=10
+```
+
+- Usa o mesmo `TAVILY_API_KEY` da busca.
+- O conteúdo é limpo, truncado e cacheado por URL.
+- O prompt proíbe ler URLs em voz alta; a Maya usa o conteúdo para responder.
+
+## Clima (get_weather)
+
+A tool `get_weather` usa o Open-Meteo, sem chave.
+
+- Recebe uma cidade, faz geocoding e busca o clima atual.
+- Retorna temperatura, sensação térmica, condição, vento, umidade e horário.
+- Erros viram uma mensagem curta; a Maya não inventa dados.
+
+## Mercado (get_market_summary)
+
+A tool `get_market_summary` usa o Yahoo Finance, sem chave.
+
+- Retorna Ibovespa, S&P 500, Nasdaq e Dow Jones.
+- Inclui preço, variação, variação percentual, moeda e horário.
+- É o caminho correto para “como estão as ações hoje”; não use web_search
+  para cotações ao vivo.
 
 ## Idioma e prompt
 
@@ -279,6 +328,11 @@ Até lá, não há factory/registry: um adapter por tipo mantém o código diret
   Sem chave, o modo keyless pode ser rate-limitado. A Maya avisa que não conseguiu
   verificar; tente de novo ou aumente `WEB_SEARCH_TIMEOUT_SECONDS`. Para desligar,
   use `WEB_SEARCH_ENABLED=false`.
+- **`web_extract` falhando**: confira a URL e o limite do Tavily; páginas com
+  JavaScript pesado podem retornar pouco conteúdo. Ajuste `WEB_EXTRACT_MAX_CHARS`
+  ou use a busca como fallback.
+- **Clima/mercado indisponíveis**: Open-Meteo e Yahoo podem falhar ou limitar.
+  A Maya avisa; tente novamente depois. Nenhuma chave é necessária.
 - **Falha ao conectar no LiveKit**: confirme `docker compose ps`, a URL e as
   credenciais. O modo dev do LiveKit usa `devkey` / `secret`.
 - **Aviso de chave HMAC curta**: esperado com `devkey` / `secret` do modo dev local;
@@ -286,5 +340,5 @@ Até lá, não há factory/registry: um adapter por tipo mantém o código diret
 
 ## Limitações deste MVP
 
-Sem tools/function calling, RAG, memória persistente, wake word, UI customizada,
-telefonia/SIP, vídeo, autenticação ou deploy de produção.
+Sem RAG, memória persistente, wake word, UI customizada, telefonia/SIP, vídeo,
+autenticação ou deploy de produção.

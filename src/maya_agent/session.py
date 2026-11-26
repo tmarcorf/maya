@@ -37,7 +37,7 @@ def build_turn_handling(settings: TurnSettings) -> TurnHandlingOptions:
 def build_agent(settings: AppSettings) -> Agent:
     return Agent(
         instructions=build_instructions(settings.maya),
-        tools=build_tools(settings.web_search),
+        tools=build_tools(settings),
     )
 
 

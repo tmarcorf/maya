@@ -33,6 +33,12 @@ def test_defaults() -> None:
     assert settings.web_search.api_key == ""
     assert settings.web_search.max_results == 3
     assert settings.web_search.timeout_seconds == 8.0
+    assert settings.web_search.cache_ttl_minutes == 10
+    assert settings.web_extract.enabled is True
+    assert settings.web_extract.max_urls == 2
+    assert settings.web_extract.max_chars == 6000
+    assert settings.web_extract.timeout_seconds == 8.0
+    assert settings.web_extract.cache_ttl_minutes == 10
 
 
 def test_web_search_can_be_enabled_without_a_key() -> None:
@@ -67,6 +73,44 @@ def test_web_search_timeout_is_validated() -> None:
 def test_web_search_boolean_is_validated() -> None:
     with pytest.raises(ValueError, match="WEB_SEARCH_ENABLED"):
         load_settings({**BASE_ENV, "WEB_SEARCH_ENABLED": "sometimes"})
+
+
+def test_web_search_cache_ttl_is_validated() -> None:
+    with pytest.raises(ValueError, match="WEB_SEARCH_CACHE_TTL_MINUTES"):
+        load_settings({**BASE_ENV, "WEB_SEARCH_CACHE_TTL_MINUTES": "-1"})
+
+
+def test_web_extract_settings_are_loaded() -> None:
+    settings = load_settings(
+        {
+            **BASE_ENV,
+            "WEB_EXTRACT_ENABLED": "false",
+            "WEB_EXTRACT_MAX_URLS": "3",
+            "WEB_EXTRACT_MAX_CHARS": "4000",
+            "WEB_EXTRACT_TIMEOUT_SECONDS": "12",
+            "WEB_EXTRACT_CACHE_TTL_MINUTES": "20",
+        }
+    )
+
+    assert settings.web_extract.enabled is False
+    assert settings.web_extract.max_urls == 3
+    assert settings.web_extract.max_chars == 4000
+    assert settings.web_extract.timeout_seconds == 12.0
+    assert settings.web_extract.cache_ttl_minutes == 20
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("WEB_EXTRACT_MAX_URLS", "0"),
+        ("WEB_EXTRACT_MAX_CHARS", "100"),
+        ("WEB_EXTRACT_TIMEOUT_SECONDS", "1"),
+        ("WEB_EXTRACT_CACHE_TTL_MINUTES", "-1"),
+    ],
+)
+def test_web_extract_values_are_validated(name: str, value: str) -> None:
+    with pytest.raises(ValueError, match=name):
+        load_settings({**BASE_ENV, name: value})
 
 
 def test_language_is_normalized() -> None:

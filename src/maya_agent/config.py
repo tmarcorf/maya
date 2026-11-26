@@ -64,6 +64,16 @@ class WebSearchSettings:
     api_key: str
     max_results: int
     timeout_seconds: float
+    cache_ttl_minutes: int
+
+
+@dataclass(frozen=True, slots=True)
+class WebExtractSettings:
+    enabled: bool
+    max_urls: int
+    max_chars: int
+    timeout_seconds: float
+    cache_ttl_minutes: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +84,7 @@ class AppSettings:
     elevenlabs: ElevenLabsSettings
     turn: TurnSettings
     web_search: WebSearchSettings
+    web_extract: WebExtractSettings
 
 
 def _env(env: Mapping[str, str], name: str, default: str = "") -> str:
@@ -198,11 +209,43 @@ def _load_web_search_settings(env: Mapping[str, str]) -> WebSearchSettings:
     if not 2 <= timeout_seconds <= 30:
         raise ValueError("WEB_SEARCH_TIMEOUT_SECONDS must be between 2 and 30")
 
+    cache_ttl_minutes = _env_int(env, "WEB_SEARCH_CACHE_TTL_MINUTES", 10)
+    if not 0 <= cache_ttl_minutes <= 1440:
+        raise ValueError("WEB_SEARCH_CACHE_TTL_MINUTES must be between 0 and 1440")
+
     return WebSearchSettings(
         enabled=enabled,
         api_key=_env(env, "TAVILY_API_KEY"),
         max_results=max_results,
         timeout_seconds=timeout_seconds,
+        cache_ttl_minutes=cache_ttl_minutes,
+    )
+
+
+def _load_web_extract_settings(env: Mapping[str, str]) -> WebExtractSettings:
+    enabled = _env_bool(env, "WEB_EXTRACT_ENABLED", True)
+    max_urls = _env_int(env, "WEB_EXTRACT_MAX_URLS", 2)
+    if not 1 <= max_urls <= 5:
+        raise ValueError("WEB_EXTRACT_MAX_URLS must be between 1 and 5")
+
+    max_chars = _env_int(env, "WEB_EXTRACT_MAX_CHARS", 6000)
+    if not 500 <= max_chars <= 15000:
+        raise ValueError("WEB_EXTRACT_MAX_CHARS must be between 500 and 15000")
+
+    timeout_seconds = _env_float(env, "WEB_EXTRACT_TIMEOUT_SECONDS", 8.0)
+    if not 2 <= timeout_seconds <= 30:
+        raise ValueError("WEB_EXTRACT_TIMEOUT_SECONDS must be between 2 and 30")
+
+    cache_ttl_minutes = _env_int(env, "WEB_EXTRACT_CACHE_TTL_MINUTES", 10)
+    if not 0 <= cache_ttl_minutes <= 1440:
+        raise ValueError("WEB_EXTRACT_CACHE_TTL_MINUTES must be between 0 and 1440")
+
+    return WebExtractSettings(
+        enabled=enabled,
+        max_urls=max_urls,
+        max_chars=max_chars,
+        timeout_seconds=timeout_seconds,
+        cache_ttl_minutes=cache_ttl_minutes,
     )
 
 
@@ -220,4 +263,5 @@ def load_settings(env: Mapping[str, str] | None = None) -> AppSettings:
         elevenlabs=_load_elevenlabs_settings(source),
         turn=_load_turn_settings(source),
         web_search=_load_web_search_settings(source),
+        web_extract=_load_web_extract_settings(source),
     )

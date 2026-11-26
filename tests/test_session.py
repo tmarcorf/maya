@@ -37,13 +37,22 @@ def _settings(tmp_path, *, web_search_enabled: bool):
     )
 
 
-def test_build_agent_includes_web_search_when_enabled(tmp_path) -> None:
+def test_build_agent_includes_all_tools_when_web_search_enabled(tmp_path) -> None:
     agent = build_agent(_settings(tmp_path, web_search_enabled=True))
 
-    assert [tool.info.name for tool in agent.tools] == ["web_search"]
+    assert [tool.info.name for tool in agent.tools] == [
+        "web_search",
+        "web_extract",
+        "get_weather",
+        "get_market_summary",
+    ]
 
 
-def test_build_agent_has_no_tools_when_web_search_disabled(tmp_path) -> None:
+def test_build_agent_keeps_non_search_tools_when_web_search_disabled(tmp_path) -> None:
     agent = build_agent(_settings(tmp_path, web_search_enabled=False))
 
-    assert agent.tools == []
+    assert [tool.info.name for tool in agent.tools] == [
+        "web_extract",
+        "get_weather",
+        "get_market_summary",
+    ]

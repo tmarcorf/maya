@@ -3,13 +3,11 @@ from __future__ import annotations
 import pytest
 from livekit.agents import ToolError
 
-from maya_agent.config import WebSearchSettings
 from maya_agent.tools.web_search import (
     SearchResponse,
     SearchResult,
     TavilySearchClient,
     WebSearchError,
-    build_tools,
     search_web,
 )
 
@@ -153,16 +151,52 @@ def test_tavily_headers_use_keyless_mode_without_key() -> None:
     assert "Authorization" not in headers
 
 
-def test_build_tools_returns_nothing_when_disabled() -> None:
-    settings = WebSearchSettings(enabled=False, api_key="", max_results=3, timeout_seconds=8)
+@pytest.mark.asyncio
+async def test_tavily_client_caches_repeated_searches() -> None:
+    calls = 0
 
-    assert build_tools(settings) == []
+    async def request(payload: dict[str, object]) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        return {
+            "answer": "ok",
+            "results": [{"title": "A", "url": "https://a.test", "content": "a"}],
+        }
+
+    client = TavilySearchClient(
+        api_key="test-key",
+        timeout_seconds=8,
+        request=request,
+        cache_ttl_seconds=60,
+    )
+
+    first = await client.search("mesma busca", 3)
+    second = await client.search("mesma busca", 3)
+
+    assert first == second
+    assert calls == 1
 
 
-def test_build_tools_exposes_web_search_when_enabled() -> None:
-    settings = WebSearchSettings(enabled=True, api_key="test-key", max_results=3, timeout_seconds=8)
+@pytest.mark.asyncio
+async def test_tavily_client_cache_expires() -> None:
+    now = 0.0
+    calls = 0
 
-    tools = build_tools(settings)
+    async def request(payload: dict[str, object]) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        return {"answer": None, "results": []}
 
-    assert len(tools) == 1
-    assert tools[0].info.name == "web_search"
+    client = TavilySearchClient(
+        api_key="test-key",
+        timeout_seconds=8,
+        request=request,
+        cache_ttl_seconds=10,
+        clock=lambda: now,
+    )
+
+    await client.search("busca", 3)
+    now = 11
+    await client.search("busca", 3)
+
+    assert calls == 2

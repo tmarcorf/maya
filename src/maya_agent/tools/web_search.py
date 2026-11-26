@@ -10,6 +10,8 @@ import aiohttp
 from livekit.agents import ToolError, function_tool, llm, utils
 
 from ..config import WebSearchSettings
+from .cache import TTLCache
+from .text import clean_text, truncate
 
 logger = logging.getLogger("maya.web_search")
 
@@ -43,10 +45,6 @@ class WebSearchClient(Protocol):
 RequestFn = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
 
-def _clean_text(value: str) -> str:
-    return " ".join(value.split()).strip()
-
-
 class TavilySearchClient:
     def __init__(
         self,
@@ -54,10 +52,15 @@ class TavilySearchClient:
         api_key: str,
         timeout_seconds: float,
         request: RequestFn | None = None,
+        cache_ttl_seconds: float = 0.0,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._api_key = api_key
         self._timeout_seconds = timeout_seconds
         self._request = request
+        self._cache: TTLCache[tuple[str, int], SearchResponse] | None = (
+            TTLCache(cache_ttl_seconds, clock=clock) if cache_ttl_seconds > 0 else None
+        )
 
     def _headers(self) -> dict[str, str]:
         headers = {"X-Client-Name": "maya-agent"}
@@ -86,6 +89,12 @@ class TavilySearchClient:
 
     async def search(self, query: str, limit: int) -> SearchResponse:
         limit = max(1, min(limit, 10))
+        cache_key = (query, limit)
+        if self._cache is not None:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                return cached
+
         payload = {
             "query": query,
             "max_results": limit,
@@ -103,27 +112,31 @@ class TavilySearchClient:
         except Exception as exc:
             raise WebSearchError(str(exc)) from exc
 
-        answer = _clean_text(str(data.get("answer") or ""))
+        answer = clean_text(data.get("answer")) if isinstance(data, dict) else ""
+        raw_results = data.get("results") if isinstance(data, dict) else None
         results: list[SearchResult] = []
         seen: set[str] = set()
-        for item in data.get("results", [])[:limit]:
-            url = _clean_text(str(item.get("url") or ""))
+        for item in raw_results[:limit] if isinstance(raw_results, list) else []:
+            url = clean_text(item.get("url"))
             if not url or url in seen:
                 continue
 
             seen.add(url)
-            title = _clean_text(str(item.get("title") or "")) or url
-            snippet = _clean_text(str(item.get("content") or item.get("snippet") or ""))
+            title = clean_text(item.get("title")) or url
+            snippet = clean_text(item.get("content") or item.get("snippet"))
             results.append(SearchResult(title=title, url=url, snippet=snippet))
 
-        return SearchResponse(
-            answer=answer[:MAX_ANSWER_CHARS] if answer else None,
+        response = SearchResponse(
+            answer=truncate(answer, MAX_ANSWER_CHARS) if answer else None,
             results=results,
         )
+        if self._cache is not None:
+            self._cache.set(cache_key, response)
+        return response
 
 
 async def search_web(client: WebSearchClient, query: str, max_results: int) -> dict[str, Any]:
-    cleaned_query = _clean_text(query)
+    cleaned_query = clean_text(query)
     if not cleaned_query:
         raise ToolError("Diga o que você quer pesquisar.")
     if len(cleaned_query) > MAX_QUERY_CHARS:
@@ -159,9 +172,9 @@ async def search_web(client: WebSearchClient, query: str, max_results: int) -> d
         "answer": response.answer,
         "results": [
             {
-                "title": result.title[:200],
+                "title": truncate(result.title, 200),
                 "url": result.url,
-                "snippet": result.snippet[:MAX_SNIPPET_CHARS],
+                "snippet": truncate(result.snippet, MAX_SNIPPET_CHARS),
             }
             for result in response.results[:max_results]
         ],
@@ -175,6 +188,7 @@ def build_web_search_tool(
     search_client = client or TavilySearchClient(
         api_key=settings.api_key,
         timeout_seconds=settings.timeout_seconds,
+        cache_ttl_seconds=settings.cache_ttl_minutes * 60,
     )
 
     @function_tool(name="web_search")
