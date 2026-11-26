@@ -40,6 +40,22 @@ def test_defaults() -> None:
     assert settings.web_extract.max_chars == 6000
     assert settings.web_extract.timeout_seconds == 8.0
     assert settings.web_extract.cache_ttl_minutes == 10
+    assert settings.apps.enabled is False
+    assert settings.apps.launch_timeout_seconds == 5.0
+
+
+def test_apps_can_be_enabled() -> None:
+    settings = load_settings(
+        {**BASE_ENV, "APPS_ENABLED": "true", "APPS_LAUNCH_TIMEOUT_SECONDS": "3"}
+    )
+
+    assert settings.apps.enabled is True
+    assert settings.apps.launch_timeout_seconds == 3.0
+
+
+def test_apps_timeout_is_validated() -> None:
+    with pytest.raises(ValueError, match="APPS_LAUNCH_TIMEOUT_SECONDS"):
+        load_settings({**BASE_ENV, "APPS_LAUNCH_TIMEOUT_SECONDS": "0"})
 
 
 def test_timezone_can_be_overridden() -> None:

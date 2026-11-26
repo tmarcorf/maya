@@ -23,7 +23,7 @@ def test_build_turn_handling_wires_settings() -> None:
     assert options["interruption"]["min_duration"] == 0.3
 
 
-def _settings(tmp_path, *, web_search_enabled: bool):
+def _settings(tmp_path, *, web_search_enabled: bool, apps_enabled: bool = False):
     prompt_path = tmp_path / "maya.md"
     prompt_path.write_text("Persona de teste.", encoding="utf-8")
     return load_settings(
@@ -33,6 +33,7 @@ def _settings(tmp_path, *, web_search_enabled: bool):
             "ELEVENLABS_VOICE_ID": "voice-id",
             "MAYA_PROMPT_PATH": str(prompt_path),
             "WEB_SEARCH_ENABLED": "true" if web_search_enabled else "false",
+            "APPS_ENABLED": "true" if apps_enabled else "false",
         }
     )
 
@@ -66,3 +67,17 @@ def test_build_agent_keeps_non_search_tools_when_web_search_disabled(tmp_path) -
         "get_market_summary",
         "get_stock_quote",
     ]
+
+
+def test_build_agent_includes_open_app_when_enabled(tmp_path) -> None:
+    agent = build_agent(
+        _settings(
+            tmp_path,
+            web_search_enabled=True,
+            apps_enabled=True,
+        )
+    )
+
+    names = [tool.info.name for tool in agent.tools]
+    assert "find_apps" in names
+    assert "open_app" in names

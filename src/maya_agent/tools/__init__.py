@@ -3,6 +3,7 @@ from __future__ import annotations
 from livekit.agents import llm
 
 from ..config import AppSettings
+from .apps import build_app_tools
 from .calculator import build_calculator_tool
 from .market import build_market_tool, build_stock_quote_tool
 from .time_tool import build_time_tool
@@ -35,4 +36,7 @@ def build_tools(settings: AppSettings) -> list[llm.Tool]:
     tools.append(build_weather_forecast_tool())
     tools.append(build_market_tool())
     tools.append(build_stock_quote_tool())
+
+    if settings.apps.enabled:
+        tools.extend(build_app_tools(settings.apps))
     return tools

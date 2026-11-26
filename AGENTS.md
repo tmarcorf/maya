@@ -4,8 +4,8 @@ Realtime voice agent Maya built with LiveKit Agents. Current stack is fixed:
 faster-whisper (local STT), DeepSeek (LLM via the OpenAI-compatible plugin),
 ElevenLabs (TTS), Tavily (web search/extract; key optional, keyless fallback),
 Open-Meteo (weather/forecast), Yahoo Finance (market/stock quotes), plus local
-datetime, calculator and Wikipedia tools. Do not add provider selectors or
-factories until a second adapter for the same capability exists.
+datetime, calculator, Wikipedia and desktop app launching. Do not add provider
+selectors or factories until a second adapter for the same capability exists.
 
 ## Commands
 
@@ -46,6 +46,8 @@ starting Python. Use it for anything that loads faster-whisper on CUDA.
 - `src/maya_agent/tools/time_tool.py`: timezone-aware `get_current_datetime`.
 - `src/maya_agent/tools/calculator.py`: safe AST-based `calculate`.
 - `src/maya_agent/tools/wikipedia.py`: MediaWiki `wikipedia` summary.
+- `src/maya_agent/tools/apps.py`: `.desktop` index, `find_apps` source of truth,
+  and strict `open_app` via `gio launch`/`gtk-launch`.
 - `src/maya_agent/tools/cache.py`: small in-memory `TTLCache`.
 - `src/maya_agent/tools/text.py`: text cleanup, truncation, and URL
   normalization helpers.
@@ -64,6 +66,10 @@ starting Python. Use it for anything that loads faster-whisper on CUDA.
   uses MediaWiki. None needs a key.
 - `MAYA_TIMEZONE` must be a valid IANA timezone.
 - `calculate` uses an AST allowlist, never `eval`.
+- `open_app` currently has no allowlist. It only launches visible `.desktop`
+  entries, never accepts shells/commands/paths, and only runs on explicit user
+  request. Use `find_apps` to map translated/vague names to the exact installed
+  name. Tests must use fake indexes/launchers, never open real apps.
 - `.env` is gitignored and must stay out of commits.
 - Tests must not load `.env`, download models, or make network calls. Inject fake
   request functions or fake clients for tool tests.

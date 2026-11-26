@@ -79,6 +79,12 @@ class WebExtractSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class AppsSettings:
+    enabled: bool
+    launch_timeout_seconds: float
+
+
+@dataclass(frozen=True, slots=True)
 class AppSettings:
     maya: MayaSettings
     whisper: WhisperSettings
@@ -87,6 +93,7 @@ class AppSettings:
     turn: TurnSettings
     web_search: WebSearchSettings
     web_extract: WebExtractSettings
+    apps: AppsSettings
 
 
 def _env(env: Mapping[str, str], name: str, default: str = "") -> str:
@@ -259,6 +266,18 @@ def _load_timezone(raw: str) -> str:
     return raw
 
 
+def _load_apps_settings(env: Mapping[str, str]) -> AppsSettings:
+    enabled = _env_bool(env, "APPS_ENABLED", False)
+    launch_timeout_seconds = _env_float(env, "APPS_LAUNCH_TIMEOUT_SECONDS", 5.0)
+    if not 1 <= launch_timeout_seconds <= 15:
+        raise ValueError("APPS_LAUNCH_TIMEOUT_SECONDS must be between 1 and 15")
+
+    return AppsSettings(
+        enabled=enabled,
+        launch_timeout_seconds=launch_timeout_seconds,
+    )
+
+
 def load_settings(env: Mapping[str, str] | None = None) -> AppSettings:
     source = os.environ if env is None else env
     language = _normalize_language(_env(source, "MAYA_LANGUAGE", "pt-BR") or "pt-BR")
@@ -277,4 +296,5 @@ def load_settings(env: Mapping[str, str] | None = None) -> AppSettings:
         turn=_load_turn_settings(source),
         web_search=_load_web_search_settings(source),
         web_extract=_load_web_extract_settings(source),
+        apps=_load_apps_settings(source),
     )

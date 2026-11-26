@@ -15,6 +15,7 @@ Stack atual:
 - Data/hora local, cálculo seguro, Wikipedia
 - Clima atual e previsão via **Open-Meteo**
 - Mercado/índices e cotação de ação via **Yahoo Finance**
+- Abertura de programas instalados via `.desktop`
 - Cache TTL em memória para busca e extração
 - VAD Silero + turn detector multimodal multilíngue do LiveKit (`pt` suportado)
 - Endpointing configurável por `.env`
@@ -48,6 +49,7 @@ maya/
 │       ├── tts_elevenlabs.py
 │       └── tools/
 │           ├── __init__.py
+│           ├── apps.py
 │           ├── cache.py
 │           ├── calculator.py
 │           ├── market.py
@@ -59,6 +61,7 @@ maya/
 │           └── wikipedia.py
 └── tests/
     ├── test_agent.py
+    ├── test_apps.py
     ├── test_cache.py
     ├── test_calculator.py
     ├── test_config.py
@@ -87,6 +90,7 @@ maya/
 - GPU NVIDIA é opcional; o Whisper roda em CUDA com fallback automático para CPU
 - A busca na web usa Tavily; a chave é opcional e o modo keyless funciona com limites
 - Clima e mercado usam Open-Meteo/Yahoo e não exigem chave
+- Abrir programas exige uma sessão gráfica (X11/Wayland) com DBus
 
 ## Setup rápido
 
@@ -282,6 +286,25 @@ As tools de mercado usam o Yahoo Finance, sem chave.
 - É o caminho correto para “como estão as ações hoje”; não use web_search
   para cotações ao vivo.
 
+## Abrir programas (open_app)
+
+```dotenv
+APPS_ENABLED=true
+APPS_LAUNCH_TIMEOUT_SECONDS=5
+```
+
+- Sem allowlist nesta fase: qualquer app visível em `.desktop` pode ser aberto.
+- `find_apps(query)` busca na lista real de apps instalados e devolve nome,
+  desktop ID e `GenericName`; com query vazia, lista os apps visíveis.
+- `open_app` é estrito: use o nome ou desktop ID exato retornado por `find_apps`.
+- Exemplo: “calculadora” → `find_apps("calculadora")` encontra `Calculator`
+  (`org.gnome.Calculator.desktop`) → `open_app("Calculator")`.
+- Usa `gio launch` com fallback para `gtk-launch`; sem shell, sem flags e sem
+  caminhos arbitrários.
+- Apps `NoDisplay=true`/`Hidden=true` são ignorados.
+- Em ambientes sem sessão gráfica/DBus, a abertura falha de forma amigável.
+- Desligue com `APPS_ENABLED=false`.
+
 ## Data, cálculo e Wikipedia
 
 ```dotenv
@@ -362,6 +385,12 @@ Até lá, não há factory/registry: um adapter por tipo mantém o código diret
   funções, variáveis ou expressões muito grandes.
 - **Wikipedia sem resultado**: confira o termo ou tente `web_search`; a tool usa
   o idioma configurado em `MAYA_LANGUAGE`.
+- **App não encontrado**: use o nome exato do programa instalado; a tool não
+  adivinha nomes parecidos para evitar abrir o app errado.
+- **Falha ao abrir app**: confira `DISPLAY`/`WAYLAND_DISPLAY`, `DBUS_SESSION_BUS_ADDRESS`
+  e `XDG_RUNTIME_DIR`. `gio`/`gtk-launch` precisam existir na sessão.
+- **`open_app` não aparece**: confirme `APPS_ENABLED=true` no `.env` e reinicie o
+  agente; variáveis do `.env` não são recarregadas em runtime.
 - **Falha ao conectar no LiveKit**: confirme `docker compose ps`, a URL e as
   credenciais. O modo dev do LiveKit usa `devkey` / `secret`.
 - **Aviso de chave HMAC curta**: esperado com `devkey` / `secret` do modo dev local;
