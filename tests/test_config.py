@@ -5,7 +5,7 @@ import pytest
 from maya_agent.config import PROJECT_ROOT, load_settings
 
 BASE_ENV = {
-    "DEEPSEEK_API_KEY": "deepseek-key",
+    "HERMES_API_KEY": "hermes-key",
     "ELEVENLABS_API_KEY": "elevenlabs-key",
     "ELEVENLABS_VOICE_ID": "voice-id",
 }
@@ -22,9 +22,13 @@ def test_defaults() -> None:
     assert settings.whisper.model == "medium"
     assert settings.whisper.device == "auto"
     assert settings.whisper.compute_type == "default"
-    assert settings.deepseek.model == "deepseek-flash"
-    assert settings.deepseek.base_url == "https://api.deepseek.com"
-    assert settings.deepseek.temperature == 0.6
+    assert settings.hermes.base_url == "http://127.0.0.1:8642/p/maya-voice/v1"
+    assert settings.hermes.model == "hermes-agent"
+    assert settings.hermes.session_key == "maya-user"
+    assert settings.hermes.max_retries == 1
+    assert settings.hermes.timeout_seconds == 180.0
+    assert settings.hermes.approval_enabled is True
+    assert settings.hermes.approval_port == 8765
     assert settings.elevenlabs.model_id == "eleven_flash_v2_5"
     assert settings.turn.detector_version == "v1-mini"
     assert settings.turn.endpointing_mode == "fixed"
@@ -161,9 +165,29 @@ def test_absolute_prompt_path_is_preserved(tmp_path) -> None:
     assert settings.maya.prompt_path == prompt_path
 
 
-def test_deepseek_key_is_required() -> None:
-    with pytest.raises(ValueError, match="DEEPSEEK_API_KEY"):
-        load_settings({**BASE_ENV, "DEEPSEEK_API_KEY": ""})
+def test_hermes_key_is_required() -> None:
+    with pytest.raises(ValueError, match="HERMES_API_KEY"):
+        load_settings({**BASE_ENV, "HERMES_API_KEY": ""})
+
+
+def test_hermes_base_url_is_validated() -> None:
+    with pytest.raises(ValueError, match="HERMES_BASE_URL"):
+        load_settings({**BASE_ENV, "HERMES_BASE_URL": "127.0.0.1:8642"})
+
+
+def test_hermes_retries_are_validated() -> None:
+    with pytest.raises(ValueError, match="HERMES_MAX_RETRIES"):
+        load_settings({**BASE_ENV, "HERMES_MAX_RETRIES": "4"})
+
+
+def test_hermes_timeout_is_validated() -> None:
+    with pytest.raises(ValueError, match="HERMES_TIMEOUT_SECONDS"):
+        load_settings({**BASE_ENV, "HERMES_TIMEOUT_SECONDS": "1"})
+
+
+def test_hermes_approval_port_is_validated() -> None:
+    with pytest.raises(ValueError, match="HERMES_APPROVAL_PORT"):
+        load_settings({**BASE_ENV, "HERMES_APPROVAL_PORT": "70000"})
 
 
 def test_elevenlabs_key_is_required() -> None:
@@ -195,8 +219,3 @@ def test_whisper_device_is_validated() -> None:
 def test_turn_detector_version_is_validated() -> None:
     with pytest.raises(ValueError, match="TURN_DETECTOR_VERSION"):
         load_settings({**BASE_ENV, "TURN_DETECTOR_VERSION": "v2"})
-
-
-def test_temperature_range_is_validated() -> None:
-    with pytest.raises(ValueError, match="DEEPSEEK_TEMPERATURE"):
-        load_settings({**BASE_ENV, "DEEPSEEK_TEMPERATURE": "3"})

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 from typing import Any
 
 from livekit.agents import AgentStateChangedEvent, UserStateChangedEvent
@@ -79,3 +80,26 @@ def test_logs_once_per_turn(caplog) -> None:
     session.emit("agent_state_changed", _agent_started_speaking(now + 0.7))
 
     assert caplog.text.count("turn latency") == 1
+
+
+class FakeLLM(FakeSession):
+    pass
+
+
+def test_logs_structured_turn_record(caplog) -> None:
+    caplog.set_level(logging.INFO, logger="maya.latency")
+    session = FakeSession()
+    llm = FakeLLM()
+    attach_turn_latency_logger(session, llm=llm, room="room-1", session_id="session-1")
+
+    now = 1_000.0
+    session.emit("user_state_changed", _user_stopped_speaking(now))
+    llm.emit("metrics_collected", SimpleNamespace(ttft=0.5))
+    llm.emit("progress", {"status": "running", "timestamp": now + 1.2})
+    session.emit("agent_state_changed", _agent_started_speaking(now + 2.0))
+
+    assert '"first_audio_ms": 2000' in caplog.text
+    assert '"first_token_ms": 500' in caplog.text
+    assert '"tool_ack_ms": 1200' in caplog.text
+    assert '"room": "room-1"' in caplog.text
+    assert '"session_id": "session-1"' in caplog.text

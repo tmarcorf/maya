@@ -37,11 +37,15 @@ class WhisperSettings:
 
 
 @dataclass(frozen=True, slots=True)
-class DeepSeekSettings:
+class HermesSettings:
+    base_url: str
     api_key: str
     model: str
-    base_url: str
-    temperature: float
+    session_key: str
+    max_retries: int
+    timeout_seconds: float
+    approval_enabled: bool
+    approval_port: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,7 +92,7 @@ class AppsSettings:
 class AppSettings:
     maya: MayaSettings
     whisper: WhisperSettings
-    deepseek: DeepSeekSettings
+    hermes: HermesSettings
     elevenlabs: ElevenLabsSettings
     turn: TurnSettings
     web_search: WebSearchSettings
@@ -186,17 +190,35 @@ def _load_whisper_settings(env: Mapping[str, str]) -> WhisperSettings:
     )
 
 
-def _load_deepseek_settings(env: Mapping[str, str]) -> DeepSeekSettings:
-    temperature = _env_float(env, "DEEPSEEK_TEMPERATURE", 0.6)
-    if not 0 <= temperature <= 2:
-        raise ValueError("DEEPSEEK_TEMPERATURE must be between 0 and 2")
+def _load_hermes_settings(env: Mapping[str, str]) -> HermesSettings:
+    base_url = (
+        _env(env, "HERMES_BASE_URL", "http://127.0.0.1:8642/p/maya-voice/v1")
+        or "http://127.0.0.1:8642/p/maya-voice/v1"
+    ).rstrip("/")
+    if not base_url.startswith(("http://", "https://")):
+        raise ValueError("HERMES_BASE_URL must start with http:// or https://")
 
-    return DeepSeekSettings(
-        api_key=_require(_env(env, "DEEPSEEK_API_KEY"), "DEEPSEEK_API_KEY"),
-        model=_env(env, "DEEPSEEK_MODEL", "deepseek-flash"),
-        base_url=_env(env, "DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-        or "https://api.deepseek.com",
-        temperature=temperature,
+    max_retries = _env_int(env, "HERMES_MAX_RETRIES", 1)
+    if not 0 <= max_retries <= 3:
+        raise ValueError("HERMES_MAX_RETRIES must be between 0 and 3")
+
+    timeout_seconds = _env_float(env, "HERMES_TIMEOUT_SECONDS", 180.0)
+    if not 5 <= timeout_seconds <= 600:
+        raise ValueError("HERMES_TIMEOUT_SECONDS must be between 5 and 600")
+
+    approval_port = _env_int(env, "HERMES_APPROVAL_PORT", 8765)
+    if not 0 <= approval_port <= 65535:
+        raise ValueError("HERMES_APPROVAL_PORT must be between 0 and 65535")
+
+    return HermesSettings(
+        base_url=base_url,
+        api_key=_require(_env(env, "HERMES_API_KEY"), "HERMES_API_KEY"),
+        model=_env(env, "HERMES_MODEL", "hermes-agent") or "hermes-agent",
+        session_key=_env(env, "HERMES_SESSION_KEY", "maya-user") or "maya-user",
+        max_retries=max_retries,
+        timeout_seconds=timeout_seconds,
+        approval_enabled=_env_bool(env, "HERMES_APPROVAL_ENABLED", True),
+        approval_port=approval_port,
     )
 
 
@@ -291,7 +313,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> AppSettings:
     return AppSettings(
         maya=MayaSettings(language=language, prompt_path=prompt_path, timezone=timezone),
         whisper=_load_whisper_settings(source),
-        deepseek=_load_deepseek_settings(source),
+        hermes=_load_hermes_settings(source),
         elevenlabs=_load_elevenlabs_settings(source),
         turn=_load_turn_settings(source),
         web_search=_load_web_search_settings(source),

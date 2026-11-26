@@ -1,11 +1,12 @@
 # Maya
 
-Realtime voice agent Maya built with LiveKit Agents. Current stack is fixed:
-faster-whisper (local STT), DeepSeek (LLM via the OpenAI-compatible plugin),
-ElevenLabs (TTS), Tavily (web search/extract; key optional, keyless fallback),
-Open-Meteo (weather/forecast), Yahoo Finance (market/stock quotes), plus local
-datetime, calculator, Wikipedia and desktop app launching. Do not add provider
-selectors or factories until a second adapter for the same capability exists.
+Maya is the realtime voice layer for the Hermes Agent. The stack is fixed:
+faster-whisper (local STT), LiveKit turn-taking/VAD, ElevenLabs (TTS), and the
+Hermes API Server as the LLM/tool runner. Hermes owns the transcript, memory,
+tools, skills, and cron; Maya owns only audio I/O and the voice turn loop.
+DeepSeek is configured inside the Hermes profile, not inside Maya. Do not add
+provider selectors or factories until a second adapter for the same capability
+exists.
 
 ## Commands
 
@@ -28,60 +29,67 @@ starting Python. Use it for anything that loads faster-whisper on CUDA.
 - `src/maya_agent/agent.py`: composition root only. Creates `AgentServer`,
   registers prewarm and the RTC session, and sends the greeting.
 - `src/maya_agent/session.py`: builds `Agent`, `AgentSession`, and turn
-  handling from settings.
+  handling from settings. Wires `HermesLLM` progress/approval events.
+- `src/maya_agent/llm_hermes.py`: the only LLM adapter. Streams SSE from the
+  Hermes API server, sends only the latest user turn, and sets
+  `X-Hermes-Session-Id`/`X-Hermes-Session-Key`.
+- `src/maya_agent/approvals.py`: local approval page and `notify-send` fallback
+  for `approval.request` events. Posts decisions to
+  `/v1/runs/{run_id}/approval`.
 - `src/maya_agent/stt_whisper.py`: `WhisperSTT` protocol adapter plus
   `FasterWhisperTranscriber` (model cache, CUDA fallback, inference lock).
-- `src/maya_agent/llm_deepseek.py`: DeepSeek adapter on top of `openai.LLM`.
 - `src/maya_agent/tts_elevenlabs.py`: ElevenLabs adapter.
-- `src/maya_agent/tools/__init__.py`: `build_tools(AppSettings)` composes all
-  function tools.
-- `src/maya_agent/tools/web_search.py`: `TavilySearchClient`,
-  `WebSearchClient`, normalized `web_search`, and TTL cache.
-- `src/maya_agent/tools/web_extract.py`: `TavilyExtractClient`,
-  `WebExtractClient`, normalized `web_extract`, and TTL cache.
-- `src/maya_agent/tools/weather.py`: Open-Meteo `get_weather` and
-  `get_weather_forecast`.
-- `src/maya_agent/tools/market.py`: Yahoo Finance `get_market_summary` and
-  `get_stock_quote`.
-- `src/maya_agent/tools/time_tool.py`: timezone-aware `get_current_datetime`.
-- `src/maya_agent/tools/calculator.py`: safe AST-based `calculate`.
-- `src/maya_agent/tools/wikipedia.py`: MediaWiki `wikipedia` summary.
-- `src/maya_agent/tools/apps.py`: `.desktop` index, `find_apps` source of truth,
-  and strict `open_app` via `gio launch`/`gtk-launch`.
-- `src/maya_agent/tools/cache.py`: small in-memory `TTLCache`.
-- `src/maya_agent/tools/text.py`: text cleanup, truncation, and URL
-  normalization helpers.
-- `src/maya_agent/instructions.py`: prompt loading and language directive.
-- `src/maya_agent/latency.py`: turn latency logging from session events.
-- `prompts/maya.md`: editable persona, resolved through
-  `MAYA_PROMPT_PATH` (default `prompts/maya.md`).
+- `src/maya_agent/instructions.py`: voice prompt loading and language directive.
+- `src/maya_agent/latency.py`: structured turn latency logging from session and
+  LLM events.
+- `prompts/maya.md`: ephemeral voice-format contract, resolved through
+  `MAYA_PROMPT_PATH`. The persona lives in the Hermes profile's `SOUL.md`.
+- `src/maya_agent/tools/`: legacy PHP-era tool modules kept in the tree but not
+  wired to `Agent`. Hermes executes tools now; do not re-enable these without a
+  deliberate decision.
+
+## Hermes profile
+
+- Profile id: `maya-voice`. The default Hermes profile already has the display
+  name "Maya", so the voice profile uses a distinct id.
+- API endpoint: `http://127.0.0.1:8642/p/maya-voice/v1`.
+- `API_SERVER_ENABLED=true` and a per-profile `API_SERVER_KEY` in
+  `~/.hermes/profiles/maya-voice/.env`.
+- `platform_toolsets.api_server` lists every Hermes toolset except `stt`/`tts`
+  (Maya owns audio); `terminal.backend` is `local`; `agent.reasoning_effort` is
+  `"none"` for latency.
+- Hermes STT/TTS are disabled (`stt.enabled: false`, `voice.auto_tts: false`).
+- Market/stocks use the official `finance/stocks` skill. Weather uses web search
+  unless the optional `weather` plugin is enabled (it needs Rust).
+- Restart after profile changes: `hermes gateway restart`.
 
 ## Invariants
 
-- No OpenAI key is required. `livekit-plugins-openai` is the transport for DeepSeek.
-- DeepSeek thinking is disabled for latency.
-- Web search/extract uses Tavily. `TAVILY_API_KEY` is optional; without it the
-  clients use keyless mode. Search results and page content are untrusted data.
-- Weather/forecast uses Open-Meteo; market/stock uses Yahoo Finance; Wikipedia
-  uses MediaWiki. None needs a key.
-- `MAYA_TIMEZONE` must be a valid IANA timezone.
-- `calculate` uses an AST allowlist, never `eval`.
-- `open_app` currently has no allowlist. It only launches visible `.desktop`
-  entries, never accepts shells/commands/paths, and only runs on explicit user
-  request. Use `find_apps` to map translated/vague names to the exact installed
-  name. Tests must use fake indexes/launchers, never open real apps.
+- Do not fork Hermes. Configure the profile and upgrade with `hermes update`.
+- Maya sends only the **latest** user utterance plus a fixed per-room
+  `X-Hermes-Session-Id` and a per-user `X-Hermes-Session-Key`. Do not resend the
+  LiveKit chat history; Hermes loads its own transcript from `state.db`.
+- Hermes owns tools, memory, skills, and the transcript. Maya registers no
+  local function tools.
+- There is no direct DeepSeek (or other provider) LLM adapter in Maya. The only
+  LLM path is `HermesLLM`.
+- Tool progress is spoken out of band with
+  `session.say(..., add_to_chat_ctx=False)`; it must not enter the transcript.
+- Dangerous commands stay approval-gated. Hermes Desktop is the primary approval
+  surface; `approvals.py` is the headless fallback. Never disable approvals for
+  unattended voice runs.
+- If Hermes is down, speak a short error and retry once. Do not fall back to a
+  direct LLM.
 - `.env` is gitignored and must stay out of commits.
-- Tests must not load `.env`, download models, or make network calls. Inject fake
-  request functions or fake clients for tool tests.
+- Tests must not load `.env`, download models, or make network calls. Inject a
+  fake SSE transport/stream for `HermesLLM` tests.
 - Keep one concrete adapter per capability. Add a factory/union only when a second
   adapter exists.
 
 ## Adding a provider later
 
-1. Add a settings group in `config.py`.
-2. Add a builder module with the same shape as the current adapter. For web
-   search, implement `WebSearchClient`; for extraction, implement
-   `WebExtractClient`; for data APIs, inject the request function for tests.
-3. Wire the builder in `tools/__init__.py` (and add a selector only if there are
-   now two).
-4. Update `.env.example`, README, and tests.
+- New LLM/model/tool provider: configure it in the Hermes profile, not in Maya.
+  Maya only needs a new voice I/O adapter if a second STT or TTS provider exists.
+- New voice I/O adapter: add a settings group in `config.py`, a builder module
+  next to the current adapter, wire it in `session.py`, and update `.env.example`,
+  README, and tests.
